@@ -7,7 +7,7 @@ import { mockProducts } from './products';
 import { groupNames, mockOrders, mockPayments, sellerWallets } from './scenario';
 
 export const priceTableText = buildPriceTable(mockProducts, {
-  storeName: 'ByteStore',
+  storeName: 'MegaBot Demo',
   paymentAccounts: [
     { label: 'e-Mola', account: sellerWallets.emola.account },
     { label: 'M-Pesa', account: sellerWallets.mpesa.account },
@@ -18,7 +18,7 @@ export const mockWhatsAppConnection: WhatsAppConnection = {
   tenantId: TENANT_ID,
   status: 'connected',
   phone: '+258 85 210 4477',
-  displayName: 'ByteStore Bot',
+  displayName: 'MegaBot',
   connectedSince: ago({ days: 3, hours: 4 }),
   lastEventAt: ago({ seconds: 12 }),
   groupsMonitored: 4,

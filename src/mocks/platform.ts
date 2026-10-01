@@ -5,7 +5,7 @@ import { mockTenant, mockUser } from './session';
 
 /**
  * Demo data for the platform administration layer (cross-tenant view).
- * The demo tenant (ByteStore) is one of several sellers on the platform.
+ * The demo tenant (MegaBot Demo) is one of several sellers on the platform.
  */
 export const mockPlatformTenants: PlatformTenant[] = [
   {

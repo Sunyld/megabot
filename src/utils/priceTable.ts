@@ -30,7 +30,7 @@ export function buildPriceTable(products: Product[], { storeName, paymentAccount
 
   for (const { category, title } of sections) {
     const items = products
-      .filter((p) => p.active && p.category === category)
+      .filter((p) => p.status === 'ACTIVE' && p.category === category)
       .sort((a, b) => a.price - b.price);
     if (!items.length) continue;
     lines.push('', title, '');

@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
@@ -7,6 +8,7 @@ import { Screen } from '@/components/layout/Screen';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { Button } from '@/components/ui/Button';
 import { SegmentedControl } from '@/components/ui/Chips';
+import { Dialog } from '@/components/ui/Dialog';
 import { IconButton } from '@/components/ui/IconButton';
 import { KeyValue } from '@/components/ui/KeyValue';
 import { ListItem } from '@/components/ui/ListItem';
@@ -20,18 +22,21 @@ import { toast } from '@/components/ui/Toast';
 import { operatorLabels, paymentMethodMeta, productCategoryMeta } from '@/constants/labels';
 import { useCurrentSession } from '@/features/auth/session';
 import { ChatBubble } from '@/features/whatsapp/components/ChatBubble';
-import { usePaymentAccounts, useProducts, useSetProductActive } from '@/hooks';
+import { useArchiveProduct, usePaymentAccounts, useProducts, useSetProductActive } from '@/hooks';
 import { errorMessage } from '@/services';
+import { PRODUCT_CATEGORIES } from '@/services/productRules';
 import { createStyles, useTheme } from '@/theme';
 import type { Product, ProductCategory } from '@/types';
-import { formatData, formatMoney, formatValidity } from '@/utils/format';
+import { formatDataAmount, formatPrice, formatValidity } from '@/utils/format';
 import { buildPriceTable } from '@/utils/priceTable';
+import { describeUssdFlow } from '@/utils/ussd';
 
 import { ProductCard } from '../components/ProductCard';
 
-const categories: { value: ProductCategory; label: string }[] = (
-  ['daily', 'weekly', 'monthly', 'unlimited'] as const
-).map((value) => ({ value, label: productCategoryMeta[value].label }));
+const categories: { value: ProductCategory; label: string }[] = PRODUCT_CATEGORIES.map((value) => ({
+  value,
+  label: productCategoryMeta[value].label,
+}));
 
 function chunk<T>(items: T[], size: number): T[][] {
   const rows: T[][] = [];
@@ -39,27 +44,50 @@ function chunk<T>(items: T[], size: number): T[][] {
   return rows;
 }
 
+const openNew = () => router.push('/products/new');
+const openEdit = (id: string) => router.push({ pathname: '/products/[id]', params: { id } });
+
 export function ProductsScreen() {
-  const { tenant } = useCurrentSession();
+  const { tenant, user } = useCurrentSession();
   const { colors } = useTheme();
   const styles = useStyles();
   const products = useProducts();
   const accounts = usePaymentAccounts();
   const setActive = useSetProductActive();
+  const archive = useArchiveProduct();
   const [category, setCategory] = useState<ProductCategory>('daily');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
 
+  // UI only: the database (RLS) is what restricts product writes to owner/admin.
+  const canManage = user.role === 'owner' || user.role === 'admin';
   const list = products.data ?? [];
   const selected = list.find((p) => p.id === selectedId) ?? null;
-  const activeCount = list.filter((p) => p.active).length;
+  const activeCount = list.filter((p) => p.status === 'ACTIVE').length;
 
   const toggle = async (product: Product, active: boolean) => {
     try {
       await setActive.mutateAsync({ id: product.id, active });
-      toast.success(active ? 'Produto ativado' : 'Produto desativado', active ? 'Volta a aparecer na tabela do WhatsApp.' : 'Deixa de aparecer na tabela.');
+      toast.success(
+        active ? 'Produto ativado' : 'Produto desativado',
+        active ? 'Volta a aparecer na tabela do WhatsApp.' : 'Deixa de aparecer na tabela.'
+      );
     } catch (e) {
       toast.error('Não foi possível atualizar', errorMessage(e));
+    }
+  };
+
+  const confirmArchive = async () => {
+    if (!selected) return;
+    try {
+      await archive.mutateAsync(selected.id);
+      setArchiveOpen(false);
+      setSelectedId(null);
+      toast.success('Produto arquivado', 'Deixa de aparecer na lista e na tabela.');
+    } catch (e) {
+      setArchiveOpen(false);
+      toast.error('Não foi possível arquivar', errorMessage(e));
     }
   };
 
@@ -77,7 +105,12 @@ export function ProductsScreen() {
         <StackHeader
           title="Produtos"
           subtitle={products.data ? `${list.length} pacotes · ${activeCount} ativos` : undefined}
-          right={<IconButton icon="table" accessibilityLabel="Pré-visualizar tabela" onPress={() => setPreviewOpen(true)} />}
+          right={
+            <View style={styles.headerActions}>
+              <IconButton icon="table" accessibilityLabel="Pré-visualizar tabela" onPress={() => setPreviewOpen(true)} />
+              {canManage ? <IconButton icon="add" accessibilityLabel="Novo produto" onPress={openNew} /> : null}
+            </View>
+          }
         />
       }>
       <SegmentedControl options={categories} value={category} onChange={setCategory} />
@@ -98,8 +131,13 @@ export function ProductsScreen() {
         empty={
           <EmptyState
             icon="product"
-            title="Sem pacotes nesta categoria"
-            description="Adicione pacotes para os disponibilizar na tabela do WhatsApp."
+            title={list.length ? 'Sem pacotes nesta categoria' : 'Ainda não tem produtos'}
+            description={
+              canManage
+                ? 'Crie os pacotes que vende, com o preço e o USSD de cada um.'
+                : 'O dono ou um administrador da empresa pode adicionar pacotes.'
+            }
+            action={canManage ? { label: 'Criar produto', icon: 'add', onPress: openNew } : undefined}
           />
         }>
         {(data) => (
@@ -132,7 +170,7 @@ export function ProductsScreen() {
           <>
             <View style={styles.priceRow}>
               <Text variant="hero" color="brand">
-                {formatMoney(selected.price)}
+                {formatPrice(selected.price, selected.currency)}
               </Text>
               <Text variant="callout" color="secondary">
                 {`${selected.soldToday} vendidos hoje`}
@@ -140,33 +178,73 @@ export function ProductsScreen() {
             </View>
             <ListGroup>
               <ListItem
-                icon={selected.active ? 'checkCircle' : 'pause'}
-                iconTone={selected.active ? 'success' : 'neutral'}
+                icon={selected.status === 'ACTIVE' ? 'checkCircle' : 'pause'}
+                iconTone={selected.status === 'ACTIVE' ? 'success' : 'neutral'}
                 title="Disponível para venda"
-                subtitle={selected.active ? 'Aparece na tabela do WhatsApp' : 'Oculto dos clientes'}
+                subtitle={
+                  selected.status === 'ACTIVE'
+                    ? 'Aparece na tabela do WhatsApp'
+                    : selected.ussdFlow
+                      ? 'Oculto dos clientes'
+                      : 'Configure o USSD para poder vender'
+                }
                 trailing={
                   <Switch
-                    value={selected.active}
+                    value={selected.status === 'ACTIVE'}
                     onValueChange={(value) => void toggle(selected, value)}
+                    disabled={!canManage || setActive.isPending}
                     accessibilityLabel="Disponível para venda"
                   />
                 }
               />
             </ListGroup>
             <View>
-              <KeyValue label="Volume" value={selected.volumeMb === null ? 'Ilimitado' : formatData(selected.volumeMb)} />
+              <KeyValue label="Dados" value={formatDataAmount(selected.dataAmount, selected.dataUnit)} />
               <KeyValue label="Validade" value={formatValidity(selected.validityHours)} />
               <KeyValue label="Operadora" value={operatorLabels[selected.operator]} />
-              <KeyValue label="Modelo USSD" value={selected.ussdTemplate} mono last />
+              <KeyValue
+                label="USSD"
+                value={selected.ussdFlow ? describeUssdFlow(selected.ussdFlow) : 'Por configurar'}
+                mono={selected.ussdFlow !== null}
+                last
+              />
             </View>
             {selected.description ? (
               <Text variant="callout" color="secondary">
                 {selected.description}
               </Text>
             ) : null}
+            {canManage ? (
+              <View style={styles.sheetActions}>
+                <Button
+                  label="Editar"
+                  icon="edit"
+                  variant="secondary"
+                  style={styles.flex}
+                  onPress={() => {
+                    setSelectedId(null);
+                    openEdit(selected.id);
+                  }}
+                />
+                <Button label="Arquivar" icon="delete" variant="danger" style={styles.flex} onPress={() => setArchiveOpen(true)} />
+              </View>
+            ) : null}
           </>
         )}
       </BottomSheet>
+
+      <Dialog
+        visible={archiveOpen}
+        onClose={() => setArchiveOpen(false)}
+        icon="delete"
+        tone="danger"
+        title="Arquivar produto?"
+        message="Deixa de estar à venda e de aparecer na lista. O histórico mantém-se e o produto não pode voltar a ser editado."
+        confirmLabel="Arquivar"
+        confirmVariant="danger"
+        loading={archive.isPending}
+        onConfirm={() => void confirmArchive()}
+      />
 
       <BottomSheet
         visible={previewOpen}
@@ -186,6 +264,10 @@ const useStyles = createStyles((t) => ({
   flex: {
     flex: 1,
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   grid: {
     gap: t.spacing.md,
   },
@@ -202,6 +284,10 @@ const useStyles = createStyles((t) => ({
     flexDirection: 'row',
     alignItems: 'baseline',
     justifyContent: 'space-between',
+    gap: t.spacing.md,
+  },
+  sheetActions: {
+    flexDirection: 'row',
     gap: t.spacing.md,
   },
   chat: {

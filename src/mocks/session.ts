@@ -4,8 +4,8 @@ import { TENANT_ID } from './helpers';
 
 export const mockTenant: Tenant = {
   id: TENANT_ID,
-  name: 'ByteStore',
-  slug: 'bytestore',
+  name: 'MegaBot Demo',
+  slug: 'megabot-demo',
   status: 'active',
   plan: 'pro',
   currency: 'MZN',

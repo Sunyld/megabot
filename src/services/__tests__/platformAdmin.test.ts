@@ -67,7 +67,7 @@ describe('platform input rules', () => {
 describe('mock platform admin service', () => {
   beforeAll(() => {
     setSimulation({ latency: 'instant', failRequests: false, offline: false, emptyData: false });
-    serviceContext.setTenant('tnt_bytestore');
+    serviceContext.setTenant('tnt_megabot_demo');
   });
   afterAll(() => {
     serviceContext.setTenant(null);
@@ -115,6 +115,18 @@ describe('mock platform admin service', () => {
     expect((await service.getTenant('tnt_dados_nampula')).status).toBe('active');
   });
 
+  it('shows a tenant\'s catalog read-only to platform admins', async () => {
+    const service = createMockPlatformAdminService({ role: 'SUPPORT_ADMIN' });
+    const catalog = await service.listTenantProducts('tnt_megabot_demo');
+    expect(catalog.length).toBeGreaterThan(0);
+    expect(catalog.every((p) => p.tenantId === 'tnt_megabot_demo')).toBe(true);
+    expect(await service.listTenantProducts('tnt_recargas_matola')).toEqual([]);
+    expect((await failure(service.listTenantProducts('tnt_nope'))).code).toBe('NOT_FOUND');
+    expect((await failure(createMockPlatformAdminService({ role: null }).listTenantProducts('tnt_megabot_demo'))).code).toBe(
+      'PERMISSION_DENIED'
+    );
+  });
+
   it('reports unknown tenants as NOT_FOUND', async () => {
     const service = createMockPlatformAdminService({ role: 'SUPER_ADMIN' });
     expect((await failure(service.getTenant('tnt_nope'))).code).toBe('NOT_FOUND');
@@ -128,8 +140,8 @@ describe('mock platform admin service', () => {
     const service = createMockPlatformAdminService(options);
     expect((await service.getPlatformAdminContext()).isPlatformAdmin).toBe(false);
     expect(await failure(service.listTenants())).toMatchObject({ code: 'PERMISSION_DENIED', reason: 'PLATFORM_ACCESS_DENIED' });
-    expect((await failure(service.getTenant('tnt_bytestore'))).code).toBe('PERMISSION_DENIED');
-    expect((await failure(service.suspendTenant('tnt_bytestore'))).code).toBe('PERMISSION_DENIED');
+    expect((await failure(service.getTenant('tnt_megabot_demo'))).code).toBe('PERMISSION_DENIED');
+    expect((await failure(service.suspendTenant('tnt_megabot_demo'))).code).toBe('PERMISSION_DENIED');
     expect(await service.getAuditLogs()).toEqual([]);
   });
 });

@@ -6,6 +6,27 @@ import { AppError } from '../../errors';
 import type { NormalizedAuditLogQuery, NormalizedTenantListParams } from '../../platformAdmin';
 import { createSupabasePlatformAdminService, toAuditLogEntry, toPlatformAdminContext, toPlatformTenant } from '../platformAdmin';
 import type { AuditLogRow, PlatformAdminContextRow, PlatformAdminGateway, PlatformTenantRow } from '../platformAdminGateway';
+import type { ProductRow } from '../productsGateway';
+
+const productRow = (overrides: Partial<ProductRow> = {}): ProductRow => ({
+  id: 'product-1',
+  tenant_id: 'tenant-b',
+  name: 'Internet 5GB',
+  description: null,
+  category: 'monthly',
+  price: 499.99,
+  currency: 'MZN',
+  data_amount: 5,
+  data_unit: 'GB',
+  validity_hours: 720,
+  operator: 'vodacom',
+  status: 'ACTIVE',
+  ussd_flow: { version: 1, start: '*111#', steps: [{ type: 'confirm' }] },
+  archived_at: null,
+  created_at: '2026-10-01T10:00:00.000Z',
+  updated_at: '2026-10-01T10:00:00.000Z',
+  ...overrides,
+});
 
 /*
  * The platform admin service is exercised against a fake gateway (no network).
@@ -60,6 +81,7 @@ function createFakeGateway() {
       Promise.resolve([tenantRow({ id, status })])
     ),
     listAuditLogs: jest.fn((query: NormalizedAuditLogQuery) => Promise.resolve([auditRow()])),
+    listTenantProducts: jest.fn((tenantId: string) => Promise.resolve<ProductRow[]>([productRow({ tenant_id: tenantId })])),
   };
   const gateway: PlatformAdminGateway = mocks;
   return { gateway, mocks };
@@ -228,6 +250,28 @@ describe('createSupabasePlatformAdminService', () => {
   it('rejects an invalid pagination cursor', async () => {
     const { service } = setup();
     expect((await failure(service.getAuditLogs({ before: 'ontem' }))).code).toBe('VALIDATION_ERROR');
+  });
+
+  it('lists a tenant\'s products (archived included) for platform admins', async () => {
+    const { service, mocks } = setup();
+    mocks.listTenantProducts.mockResolvedValueOnce([
+      productRow(),
+      productRow({ id: 'product-2', status: 'INACTIVE', archived_at: '2026-10-01T11:00:00.000Z' }),
+    ]);
+    const products = await service.listTenantProducts('tenant-b');
+    expect(mocks.listTenantProducts).toHaveBeenCalledWith('tenant-b');
+    expect(products.map((p) => [p.id, p.status, p.archivedAt])).toEqual([
+      ['product-1', 'ACTIVE', null],
+      ['product-2', 'INACTIVE', '2026-10-01T11:00:00.000Z'],
+    ]);
+  });
+
+  it('denies the tenant product view to non-admins and reports unknown tenants', async () => {
+    const { service, mocks } = setup();
+    mocks.listTenantProducts.mockRejectedValueOnce(postgrest('42501'));
+    expect((await failure(service.listTenantProducts('tenant-b'))).reason).toBe('PLATFORM_ACCESS_DENIED');
+    mocks.listTenantProducts.mockRejectedValueOnce(postgrest('P0002'));
+    expect(await failure(service.listTenantProducts('nope'))).toMatchObject({ code: 'NOT_FOUND', message: 'Empresa não encontrada.' });
   });
 
   it('reports network failures as NETWORK_ERROR', async () => {

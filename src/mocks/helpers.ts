@@ -3,7 +3,7 @@
  * anchored to app start so relative labels ("há 12 min") always make sense.
  */
 
-export const TENANT_ID = 'tnt_bytestore';
+export const TENANT_ID = 'tnt_megabot_demo';
 
 export const MOCK_NOW = Date.now();
 

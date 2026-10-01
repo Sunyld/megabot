@@ -40,6 +40,10 @@ export function useReactivateTenant() {
   });
 }
 
+export function usePlatformTenantProducts(tenantId: ID) {
+  return useQuery(queryKeys.platform.tenantProducts(tenantId), () => api.platformAdmin.listTenantProducts(tenantId));
+}
+
 export function useAuditLogs(query: AuditLogQuery = {}, { enabled = true } = {}) {
   return useQuery(queryKeys.platform.auditLogs(query), () => api.platformAdmin.getAuditLogs(query), { enabled });
 }

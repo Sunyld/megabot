@@ -26,14 +26,14 @@ describe('selectMembership (Supabase rows → tenant context)', () => {
 
   it('maps membership + tenant + settings to the domain context', () => {
     const result = selectMembership([
-      membership('owner', '2026-09-01', { id: 'tenant-1', name: 'ByteStore', slug: 'bytestore' }),
+      membership('owner', '2026-09-01', { id: 'tenant-1', name: 'MegaBot Demo', slug: 'megabot-demo' }),
     ]);
     expect(result).toEqual({
       role: 'owner',
       tenant: {
         id: 'tenant-1',
-        name: 'ByteStore',
-        slug: 'bytestore',
+        name: 'MegaBot Demo',
+        slug: 'megabot-demo',
         status: 'active',
         plan: null,
         currency: 'MZN',

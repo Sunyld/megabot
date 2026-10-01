@@ -1,6 +1,6 @@
 /**
  * Database types for the Supabase client, in the format produced by
- * `supabase gen types typescript`. Written by hand for migrations 001–002
+ * `supabase gen types typescript`. Written by hand for migrations 001–003
  * because the database is not reachable from this environment — regenerate
  * once the CLI/MCP is available and keep in sync with supabase/migrations.
  *
@@ -164,6 +164,73 @@ export type Database = {
         };
         Relationships: [];
       };
+      products: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          name: string;
+          description: string | null;
+          category: string;
+          /** numeric(12,2) — serialized as a JSON number by PostgREST. */
+          price: number;
+          currency: string;
+          data_amount: number | null;
+          data_unit: string | null;
+          validity_hours: number;
+          operator: string;
+          status: string;
+          ussd_flow: Json | null;
+          archived_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          name: string;
+          description?: string | null;
+          category: string;
+          price: number;
+          /** Defaults to the tenant's currency (trigger) when omitted. */
+          currency?: string;
+          data_amount?: number | null;
+          data_unit?: string | null;
+          validity_hours: number;
+          operator: string;
+          status?: string;
+          ussd_flow?: Json | null;
+          archived_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          tenant_id?: string;
+          name?: string;
+          description?: string | null;
+          category?: string;
+          price?: number;
+          currency?: string;
+          data_amount?: number | null;
+          data_unit?: string | null;
+          validity_hours?: number;
+          operator?: string;
+          status?: string;
+          ussd_flow?: Json | null;
+          archived_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'products_tenant_id_fkey';
+            columns: ['tenant_id'];
+            isOneToOne: false;
+            referencedRelation: 'tenants';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       audit_logs: {
         Row: {
           id: string;
@@ -228,6 +295,10 @@ export type Database = {
       platform_set_tenant_status: {
         Args: { p_tenant_id: string; p_status: string; p_reason?: string };
         Returns: PlatformTenantOverviewRow[];
+      };
+      platform_list_tenant_products: {
+        Args: { p_tenant_id: string };
+        Returns: Database['public']['Tables']['products']['Row'][];
       };
     };
     Enums: {

@@ -110,7 +110,7 @@ export function RegisterScreen() {
               icon="business"
               value={values.businessName}
               onChangeText={set('businessName')}
-              placeholder="ByteStore"
+              placeholder="Megas Maputo"
               autoComplete="organization"
               textContentType="organizationName"
               returnKeyType="next"

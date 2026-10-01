@@ -32,6 +32,7 @@ import {
 import type { PlatformAdminService } from '../types';
 import { toAppError } from './errors';
 import type { AuditLogRow, PlatformAdminContextRow, PlatformAdminGateway, PlatformTenantRow } from './platformAdminGateway';
+import { toProduct } from './products';
 import { DEFAULT_TENANT_SETTINGS, isTenantStatus } from './tenancy';
 
 const PLATFORM_PERMISSIONS: readonly string[] = [
@@ -182,6 +183,14 @@ export function createSupabasePlatformAdminService(gateway: PlatformAdminGateway
         return (await gateway.listAuditLogs(normalized)).map(toAuditLogEntry);
       } catch (error) {
         throw toPlatformError(error);
+      }
+    },
+
+    async listTenantProducts(tenantId) {
+      try {
+        return (await gateway.listTenantProducts(tenantId)).map(toProduct);
+      } catch (error) {
+        throw toPlatformError(error, { tenant: true });
       }
     },
   };

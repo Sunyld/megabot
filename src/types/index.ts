@@ -8,4 +8,5 @@ export * from './payment';
 export * from './platform';
 export * from './product';
 export * from './session';
+export * from './ussd';
 export * from './whatsapp';

@@ -1,10 +1,38 @@
-import type { OrderStatus } from '@/types';
+import type { ID, OrderStatus, Product, ProductInput } from '@/types';
 import { isSameDay } from '@/utils/format';
 
+import { AppError } from '../errors';
+import { assertValidProductInput } from '../productRules';
 import type { DevicesService, ProductsService, SimsService } from '../types';
 import { db, notFound, ownedBy, request } from './db';
 
 const SOLD: OrderStatus[] = ['paid', 'processing', 'verifying', 'completed', 'failed'];
+
+/*
+ * Mock products follow the database rules of migration 003: validated input,
+ * one live product per name, ACTIVE only with a USSD flow, archive instead of
+ * delete. (Roles and tenant suspension are enforced by RLS in Supabase mode.)
+ */
+
+const liveProduct = (tenantId: string, id: ID): Product => {
+  const product = db.products.filter(ownedBy(tenantId)).find((p) => p.id === id) ?? notFound('Produto');
+  if (product.archivedAt) {
+    throw new AppError('CONFLICT', 'Este produto foi arquivado e já não pode ser alterado.', { reason: 'PRODUCT_ARCHIVED' });
+  }
+  return product;
+};
+
+function assertUniqueName(tenantId: string, name: string, exceptId?: ID) {
+  const taken = db.products.some(
+    (p) => p.tenantId === tenantId && !p.archivedAt && p.id !== exceptId && p.name.toLowerCase() === name.toLowerCase()
+  );
+  if (taken) throw new AppError('CONFLICT', 'Já existe um produto com este nome.', { reason: 'PRODUCT_NAME_TAKEN' });
+}
+
+const touch = (product: Product) => {
+  product.updatedAt = new Date().toISOString();
+  return product;
+};
 
 export const mockProductsService: ProductsService = {
   list: () =>
@@ -13,10 +41,10 @@ export const mockProductsService: ProductsService = {
         const todaysSales = db.orders
           .filter(ownedBy(tenantId))
           .filter((o) => SOLD.includes(o.status) && isSameDay(o.createdAt, Date.now()));
-        return db.products.filter(ownedBy(tenantId)).map((p) => ({
-          ...p,
-          soldToday: todaysSales.filter((o) => o.productId === p.id).length,
-        }));
+        return db.products
+          .filter(ownedBy(tenantId))
+          .filter((p) => !p.archivedAt)
+          .map((p) => ({ ...p, soldToday: todaysSales.filter((o) => o.productId === p.id).length }));
       },
       { list: true }
     ),
@@ -24,11 +52,59 @@ export const mockProductsService: ProductsService = {
   get: (id) =>
     request((tenantId) => db.products.filter(ownedBy(tenantId)).find((p) => p.id === id) ?? notFound('Produto')),
 
-  setActive: (id, active) =>
-    request((tenantId) => {
-      const product = db.products.filter(ownedBy(tenantId)).find((p) => p.id === id) ?? notFound('Produto');
-      product.active = active;
+  async create(input: ProductInput) {
+    const valid = assertValidProductInput(input);
+    return request((tenantId) => {
+      assertUniqueName(tenantId, valid.name);
+      const now = new Date().toISOString();
+      const product: Product = {
+        ...valid,
+        id: `prd_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+        tenantId,
+        archivedAt: null,
+        createdAt: now,
+        updatedAt: now,
+        soldToday: 0,
+      };
+      db.products.push(product);
       return product;
+    });
+  },
+
+  async update(id, input) {
+    const valid = assertValidProductInput(input);
+    return request((tenantId) => {
+      const product = liveProduct(tenantId, id);
+      assertUniqueName(tenantId, valid.name, id);
+      return touch(Object.assign(product, valid));
+    });
+  },
+
+  activate: (id) =>
+    request((tenantId) => {
+      const product = liveProduct(tenantId, id);
+      if (!product.ussdFlow) {
+        throw new AppError('VALIDATION_ERROR', 'Configure o USSD deste produto antes de o pôr à venda.', {
+          reason: 'INVALID_PRODUCT',
+        });
+      }
+      product.status = 'ACTIVE';
+      return touch(product);
+    }),
+
+  deactivate: (id) =>
+    request((tenantId) => {
+      const product = liveProduct(tenantId, id);
+      product.status = 'INACTIVE';
+      return touch(product);
+    }),
+
+  archive: (id) =>
+    request((tenantId) => {
+      const product = liveProduct(tenantId, id);
+      product.status = 'INACTIVE';
+      product.archivedAt = new Date().toISOString();
+      touch(product);
     }),
 };
 

@@ -1,4 +1,5 @@
 import type { ActivationTask, Order, OrderEventType, TaskStatus } from '@/types';
+import { describeUssdFlow, ussdValuesFor } from '@/utils/ussd';
 
 import { realtime } from '../realtime';
 import { db } from './db';
@@ -45,7 +46,7 @@ export function runActivationPipeline(orderId: string, { verifyOnly = false } = 
       productName: order.productName,
       destination: order.destination ?? '',
       status: 'QUEUED',
-      ussdCode: (product?.ussdTemplate ?? '').replace('{destination}', order.destination ?? ''),
+      ussdCode: product?.ussdFlow ? describeUssdFlow(product.ussdFlow, ussdValuesFor(product, order.destination)) : '',
       attempts: [],
       createdAt: now(),
       updatedAt: now(),

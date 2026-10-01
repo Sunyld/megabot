@@ -19,7 +19,7 @@ import {
   tenantStatusConflict,
 } from '../platformAdmin';
 import type { PlatformAdminService } from '../types';
-import { request } from './db';
+import { db, request } from './db';
 
 /** Mirrors private.platform_role_permissions() (migration 002). */
 const ROLE_PERMISSIONS: Record<PlatformAdminRole, PlatformPermission[]> = {
@@ -131,6 +131,17 @@ export function createMockPlatformAdminService({
     suspendTenant: (id, input) => setStatus(id, 'suspended', input?.reason),
 
     reactivateTenant: (id, input) => setStatus(id, 'active', input?.reason),
+
+    listTenantProducts: (tenantId) =>
+      request(
+        () => {
+          authorize('tenants.read');
+          findTenant(tenantId);
+          // Only the demo tenant has a catalog in mock mode.
+          return db.products.filter((product) => product.tenantId === tenantId);
+        },
+        { list: true }
+      ),
 
     async getAuditLogs(query) {
       const q = normalizeAuditLogQuery(query);

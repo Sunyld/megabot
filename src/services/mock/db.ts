@@ -65,7 +65,8 @@ export async function request<T>(
   if (emptyData && empty) return empty();
   const result = handler(TENANT_ID);
   if (list && emptyData && Array.isArray(result)) return [] as T;
-  return clone(result);
+  // Void handlers (markRead, archive…): JSON.parse(undefined) would throw.
+  return result === undefined ? result : clone(result);
 }
 
 export function notFound(entity: string): never {

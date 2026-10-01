@@ -8,13 +8,16 @@ import { createSupabaseAuthService } from './auth';
 import { createSupabaseGateway } from './gateway';
 import { createSupabasePlatformAdminService } from './platformAdmin';
 import { createPlatformAdminGateway } from './platformAdminGateway';
+import { createSupabaseProductsService } from './products';
+import { createProductsGateway } from './productsGateway';
 
 /**
  * Supabase-backed services, migrated domain by domain. Domains without a
  * Supabase implementation yet keep using `fallback` (the mock services), so
  * the app stays fully usable during the progressive mock → Supabase move.
  *
- * Migrated: auth + tenant context (001), platform administration (002).
+ * Migrated: auth + tenant context (001), platform administration (002),
+ * products with per-product USSD flows (003).
  */
 export function createSupabaseServices(fallback: Services): Services {
   try {
@@ -31,6 +34,7 @@ export function createSupabaseServices(fallback: Services): Services {
       // megabot://reset-password (dev/prod builds) or exp://…/--/reset-password (Expo Go).
       recoveryRedirectUrl: () => Linking.createURL('reset-password'),
     }),
+    products: createSupabaseProductsService(createProductsGateway(getSupabaseClient)),
     platformAdmin: createSupabasePlatformAdminService(createPlatformAdminGateway(getSupabaseClient)),
   };
 }

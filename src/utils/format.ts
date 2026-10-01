@@ -47,6 +47,18 @@ export function formatData(mb: number): string {
   return `${Math.round(mb)} MB`;
 }
 
+/** Product volume as configured: "5 GB", "400 MB", "Ilimitado". */
+export function formatDataAmount(amount: number | null, unit: 'MB' | 'GB' | null): string {
+  if (amount === null || unit === null) return 'Ilimitado';
+  return `${formatNumber(amount, Number.isInteger(amount) ? 0 : 2)} ${unit}`;
+}
+
+/** Price in the product's own currency: MZN shows as "MT" like the rest of the app. */
+export function formatPrice(value: number, currency: string): string {
+  if (currency === 'MZN') return formatMoney(value);
+  return `${formatNumber(value, Number.isInteger(value) ? 0 : 2)} ${currency}`;
+}
+
 /** Validity in hours → "24 horas" / "7 dias" / "30 dias" */
 export function formatValidity(hours: number): string {
   if (hours < 24) return `${hours} horas`;

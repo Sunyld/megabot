@@ -10,6 +10,8 @@ aborta sem alterar nada se encontrar objetos já existentes.
 | `tests/001_tenants.test.sql` | Verificação da 001 (corre numa transação revertida — não deixa dados) |
 | `migrations/002_platform_admin.sql` | `platform_admins`, `audit_logs` (append-only), autorização central, visão cross-tenant e suspensão de tenants |
 | `tests/002_platform_admin.test.sql` | Verificação da 002 (transação revertida) |
+| `migrations/003_products.sql` | `products` por tenant, fluxo USSD por produto (validado), RLS com bloqueio de escrita a tenants suspensos, arquivo e auditoria |
+| `tests/003_products.test.sql` | Verificação da 003 (transação revertida) |
 
 ## Aplicar a 001
 
@@ -42,13 +44,26 @@ Requer a 001 aplicada. Não altera nenhum objeto da 001.
 O acesso de plataforma **só** existe com uma linha em `platform_admins`. O app não a pode
 criar (sem INSERT/UPDATE para `authenticated`); é feito pelo dono da base de dados:
 
+1. **Authentication → Users → Add user → Create new user**: email + palavra-passe, com
+   *Auto Confirm User* ligado. Sem `business_name`, o trigger da 001 **não** cria empresa —
+   a conta de plataforma não precisa de ser dona de nenhum tenant.
+2. SQL Editor (o Supabase guarda o email em minúsculas; a comparação ignora maiúsculas):
+
 ```sql
-insert into public.platform_admins (user_id, role)
-select id, 'SUPER_ADMIN' from auth.users where email = '<o-seu-email>';
+insert into public.platform_admins (user_id, role, status)
+select id, 'SUPER_ADMIN', 'ACTIVE' from auth.users where lower(email) = lower('<o-seu-email>')
+returning user_id, role, status;
+-- 0 linhas devolvidas = o utilizador ainda não existe em Authentication → Users.
 -- Suporte:   ... 'SUPPORT_ADMIN' ...
 -- Suspender: update public.platform_admins set status = 'SUSPENDED' where user_id = '<uuid>';
 -- Revogar:   delete from public.platform_admins where user_id = '<uuid>';
 ```
+
+> **Limitação atual do app:** o login exige uma empresa (sem membership →
+> "Esta conta não está associada a nenhuma empresa"). Uma conta só de plataforma ainda
+> não entra no app; a futura área de Platform Admin tem de consultar
+> `platform_admin_context()` antes de exigir membership. O acesso de plataforma já
+> funciona na base de dados (RPCs `platform_*`).
 
 Cada promoção, mudança de papel/estado ou revogação fica registada em `audit_logs`
 (`platform_admin.granted|role_changed|suspended|reactivated|revoked`; `actor_user_id`
@@ -85,6 +100,86 @@ rollback;
 Com o UUID de um utilizador **normal** em `sub`: `platform_admin_context()` devolve 0 linhas,
 `platform_list_tenants()` falha com *Acesso reservado à administração da plataforma*
 e `audit_logs` devolve 0 linhas.
+
+## Aplicar a 003 (Produtos)
+
+Requer a 001 e a 002 aplicadas. Não altera nenhum objeto da 001/002.
+
+1. SQL Editor → nova query → colar `migrations/003_products.sql` → **Run**
+   ("Success. No rows returned"). `Migration 003 abortada: …` = nada foi alterado.
+2. Nova query → colar `tests/003_products.test.sql` → **Run** → último resultado
+   `PASS — 003_products …` (transação revertida: não deixa produtos de teste).
+3. No app (modo `supabase`): **Mais → Produtos**. A lista começa **vazia** — nenhum
+   produto é criado pela migration. Crie os produtos reais em **+** (Novo produto).
+
+### Modelo
+
+| Coluna | Regra |
+|---|---|
+| `price` | `numeric(12,2)` > 0 — dinheiro exato, nunca float |
+| `currency` | ISO (ex.: `MZN`); por omissão a moeda do tenant (`tenant_settings.currency`) |
+| `data_amount` + `data_unit` | `MB`/`GB`; ambos `NULL` só em planos `unlimited` |
+| `operator` | `vodacom` / `movitel` / `tmcel` — rede do pacote (onde o USSD corre). A carteira de pagamento (M-Pesa, e-Mola) é outro conceito e pertence às encomendas |
+| `status` | `ACTIVE` (à venda) / `INACTIVE` (por omissão). **`ACTIVE` exige fluxo USSD** |
+| `ussd_flow` | JSONB por produto, validado (abaixo) |
+| `archived_at` | Apagar = arquivar (soft delete): sai da lista, fica congelado e mantém o histórico para futuras encomendas. Não há DELETE pela API |
+
+Nome único por tenant entre produtos não arquivados (sem distinção de maiúsculas).
+
+### Fluxo USSD (schema versão 1)
+
+```json
+{
+  "version": 1,
+  "start": "*111#",
+  "steps": [
+    { "type": "select", "value": "5" },
+    { "type": "select", "value": "8" },
+    { "type": "select", "value": "2" },
+    { "type": "input", "source": "destination_number" },
+    { "type": "input", "source": "amount_mb" },
+    { "type": "confirm" }
+  ],
+  "success": { "contains": ["sucesso"] },
+  "failure": { "contains": ["saldo insuficiente"] }
+}
+```
+
+- Passos: `select` (opção, `value` obrigatório), `input` (`source`: `destination_number`,
+  `amount_mb`, `amount_gb`, `price`), `confirm` (`value` opcional, "1" por omissão),
+  `wait` (`ms` 100–60000). Opcionais por passo: `label`, `expect: { contains: [...] }`.
+- `success` / `failure`: textos que identificam o ecrã final.
+- Chaves ou tipos desconhecidos são **rejeitados** (`private.ussd_flow_is_valid`). Novas
+  capacidades (ramos condicionais, regex…) entram numa nova migration que estende o
+  validador; `version` permite ao executor distinguir fluxos antigos e novos.
+- A base de dados só guarda e valida — a execução fica para o worker Android.
+
+### Permissões
+
+| Ação | owner | admin | operator | tenant suspenso | platform admin |
+|---|:-:|:-:|:-:|:-:|:-:|
+| Ler produtos do próprio tenant | ✓ | ✓ | ✓ | ✓ (só leitura) | só os tenants de que é membro |
+| Criar / editar / ativar / desativar / arquivar | ✓ | ✓ | ✗ | ✗ (RLS) | ✗ |
+| Ver produtos de qualquer tenant | ✗ | ✗ | ✗ | ✗ | ✓ via `platform_list_tenant_products` (só leitura, `tenants.read`) |
+
+Auditoria automática em `audit_logs`: `product.created`, `product.updated`,
+`product.activated`, `product.deactivated`, `product.archived` (metadata: nome, campos
+alterados, estado — nunca o corpo do fluxo USSD nem segredos).
+
+### Testes manuais (Fase 4)
+
+1. Como owner: criar produto *INACTIVE* sem USSD → aparece com "Sem USSD"; tentar ativá-lo →
+   "Configure o USSD deste produto antes de o pôr à venda".
+2. Editar, configurar o USSD (código inicial + passos), ativar → aparece na tabela do WhatsApp.
+3. Arquivar → sai da lista; o registo continua na base de dados com `archived_at`.
+4. Isolamento (SQL Editor, bloco termina em `rollback`):
+   ```sql
+   begin;
+   set local role authenticated;
+   select set_config('request.jwt.claims', '{"sub":"<USER_B_ID>","role":"authenticated"}', true);
+   select count(*) from public.products where tenant_id = '<TENANT_A_ID>';  -- 0
+   rollback;
+   ```
 
 ## Ligar o app ao Supabase
 
@@ -209,3 +304,6 @@ autorização    platform_admins (ACTIVE) → papel de plataforma → permissõe
   `src/lib/supabase/database.types.ts` (ou é regenerado com `supabase gen types`).
 - Ações sensíveis são auditadas no servidor com `private.write_audit_log(...)` (dentro de
   funções `SECURITY DEFINER` em `private`), nunca escritas pelo app.
+- Desde a 003, as policies de escrita de tabelas de tenant exigem também
+  `private.tenant_is_active(tenant_id)` (tenant suspenso = só leitura). As tabelas da 001
+  ainda não têm esta regra (não foram alteradas).

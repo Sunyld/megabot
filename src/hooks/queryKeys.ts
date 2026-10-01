@@ -63,5 +63,6 @@ export const queryKeys = {
     tenant: (id: ID) => ['platform', 'tenants', 'detail', id] as const,
     auditLogsAll: ['platform', 'auditLogs'] as const,
     auditLogs: (query: AuditLogQuery) => ['platform', 'auditLogs', query] as const,
+    tenantProducts: (tenantId: ID) => ['platform', 'tenants', 'products', tenantId] as const,
   },
 };

@@ -85,7 +85,7 @@ const seeds: Seed[] = [
     kind: 'whatsapp',
     severity: 'info',
     title: 'Novo grupo monitorizado',
-    body: 'ByteStore Matola foi adicionado ao MegaBot.',
+    body: 'O grupo MegaBot Matola passou a ser monitorizado.',
     createdAt: ago({ hours: 5 }),
     target: { type: 'whatsapp' },
     read: true,

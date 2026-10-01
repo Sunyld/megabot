@@ -27,6 +27,7 @@ import type {
   PlatformTenant,
   PlatformTenantListParams,
   Product,
+  ProductInput,
   Session,
   SignInCredentials,
   SignUpInput,
@@ -103,10 +104,23 @@ export interface PaymentsService {
   listAccounts(): Promise<PaymentAccount[]>;
 }
 
+/**
+ * Products of the signed-in tenant. Reads: any member. Writes: tenant owner /
+ * admin while the tenant is active — enforced by the backend (RLS), which
+ * rejects other callers with PERMISSION_DENIED.
+ */
 export interface ProductsService {
+  /** Live products (archived ones excluded). */
   list(): Promise<Product[]>;
   get(id: ID): Promise<Product>;
-  setActive(id: ID, active: boolean): Promise<Product>;
+  create(input: ProductInput): Promise<Product>;
+  /** Replaces the editable fields (the product form). */
+  update(id: ID, input: ProductInput): Promise<Product>;
+  /** Puts the product on sale; requires a USSD flow. */
+  activate(id: ID): Promise<Product>;
+  deactivate(id: ID): Promise<Product>;
+  /** Soft delete: hidden and frozen, kept so orders keep a valid reference. */
+  archive(id: ID): Promise<void>;
 }
 
 export interface DevicesService {
@@ -164,6 +178,8 @@ export interface PlatformAdminService {
   reactivateTenant(id: ID, input?: TenantStatusChangeInput): Promise<PlatformTenant>;
   /** Newest first; empty for non-admins (RLS). Read-only: the audit trail cannot be changed. */
   getAuditLogs(query?: AuditLogQuery): Promise<AuditLogEntry[]>;
+  /** Every product of one tenant, archived included (read-only, permission tenants.read). */
+  listTenantProducts(tenantId: ID): Promise<Product[]>;
 }
 
 export type Services = {

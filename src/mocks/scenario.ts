@@ -1,5 +1,5 @@
 /**
- * Builds one coherent business day for the demo tenant (ByteStore):
+ * Builds one coherent business day for the demo tenant (MegaBot Demo):
  * orders, the payments that paid for them and the activation tasks that
  * delivered them — all cross-referenced, so every screen tells the same story.
  *
@@ -19,6 +19,7 @@ import type {
   TaskAttempt,
   TaskStatus,
 } from '@/types';
+import { describeUssdFlow, ussdValuesFor } from '@/utils/ussd';
 
 import {
   addSeconds,
@@ -71,7 +72,7 @@ const customers = [
   'Anabela Chirindza', 'Osvaldo Tivane', 'Marta Novela', 'Zacarias Mabunda',
 ];
 
-export const groupNames = ['ByteStore Megas 🔥', 'ByteStore VIP', 'Megas Baratos Maputo', 'ByteStore Matola'];
+export const groupNames = ['MegaBot Megas 🔥', 'MegaBot VIP', 'Megas Baratos Maputo', 'MegaBot Matola'];
 
 const workers = [
   { deviceId: 'dev_01', deviceName: 'Device Principal', simId: 'sim_01_1', simSlot: 1 as const },
@@ -191,7 +192,7 @@ function addTask(
     productName: p.name,
     destination: draft.destination ?? '',
     status,
-    ussdCode: p.ussdTemplate.replace('{destination}', draft.destination ?? ''),
+    ussdCode: p.ussdFlow ? describeUssdFlow(p.ussdFlow, ussdValuesFor(p, draft.destination)) : '',
     attempts: attempts.map((a, i) => ({ ...a, id: `${draft.code}-a${i}` })),
     operatorResponse,
     createdAt,
@@ -521,7 +522,7 @@ completedSale(
 const random = createRandom(92831);
 
 const productWeights = mockProducts
-  .filter((p) => p.active)
+  .filter((p) => p.status === 'ACTIVE')
   .map((p) => ({
     value: p.id,
     weight: p.category === 'daily' ? (p.popular ? 9 : 5) : p.category === 'weekly' ? 2 : 0.7,

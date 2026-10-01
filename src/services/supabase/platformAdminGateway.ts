@@ -11,6 +11,7 @@ import type { Database, MegabotSupabaseClient } from '@/lib/supabase';
 import type { TenantStatus } from '@/types';
 
 import type { NormalizedAuditLogQuery, NormalizedTenantListParams } from '../platformAdmin';
+import type { ProductRow } from './productsGateway';
 
 type Functions = Database['public']['Functions'];
 
@@ -26,6 +27,8 @@ export interface PlatformAdminGateway {
   setTenantStatus(id: string, status: TenantStatus, reason: string | null): Promise<PlatformTenantRow[]>;
   /** Rows allowed by RLS (none for non-admins), newest first. */
   listAuditLogs(query: NormalizedAuditLogQuery): Promise<AuditLogRow[]>;
+  /** Every product of a tenant, archived included (migration 003). */
+  listTenantProducts(tenantId: string): Promise<ProductRow[]>;
 }
 
 const AUDIT_LOG_COLUMNS =
@@ -82,6 +85,12 @@ export function createPlatformAdminGateway(getClient: () => MegabotSupabaseClien
       const { data, error } = await request;
       if (error) throw error;
       return data;
+    },
+
+    async listTenantProducts(tenantId) {
+      const { data, error } = await getClient().rpc('platform_list_tenant_products', { p_tenant_id: tenantId });
+      if (error) throw error;
+      return data ?? [];
     },
   };
 }

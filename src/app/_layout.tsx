@@ -92,7 +92,9 @@ function RootNavigator() {
             <Stack.Screen name="payments/[id]" />
             <Stack.Screen name="devices/[id]" />
             <Stack.Screen name="sims" />
-            <Stack.Screen name="products" />
+            <Stack.Screen name="products/index" />
+            <Stack.Screen name="products/new" />
+            <Stack.Screen name="products/[id]" />
             <Stack.Screen name="whatsapp/index" />
             <Stack.Screen name="whatsapp/[id]" />
             <Stack.Screen name="automation" />

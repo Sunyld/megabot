@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from '@/lib/query';
 import { api } from '@/services';
-import type { ID } from '@/types';
+import type { ID, ProductInput } from '@/types';
 
 import { queryKeys } from './queryKeys';
 
@@ -10,12 +10,33 @@ export function useProducts() {
   return useQuery(queryKeys.products.list(), () => api.products.list());
 }
 
-export function useProduct(id: ID) {
-  return useQuery(queryKeys.products.detail(id), () => api.products.get(id));
+export function useProduct(id: ID, { enabled = true } = {}) {
+  return useQuery(queryKeys.products.detail(id), () => api.products.get(id), { enabled });
 }
 
+export function useCreateProduct() {
+  return useMutation((input: ProductInput) => api.products.create(input), {
+    invalidate: [queryKeys.products.all],
+  });
+}
+
+export function useUpdateProduct() {
+  return useMutation(({ id, input }: { id: ID; input: ProductInput }) => api.products.update(id, input), {
+    invalidate: [queryKeys.products.all],
+  });
+}
+
+/** Activates (requires a USSD flow) or deactivates a product. */
 export function useSetProductActive() {
-  return useMutation(({ id, active }: { id: ID; active: boolean }) => api.products.setActive(id, active), {
+  return useMutation(
+    ({ id, active }: { id: ID; active: boolean }) => (active ? api.products.activate(id) : api.products.deactivate(id)),
+    { invalidate: [queryKeys.products.all] }
+  );
+}
+
+/** Soft delete — the product is hidden and frozen, never physically deleted. */
+export function useArchiveProduct() {
+  return useMutation((id: ID) => api.products.archive(id), {
     invalidate: [queryKeys.products.all],
   });
 }
