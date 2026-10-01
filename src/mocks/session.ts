@@ -1,4 +1,4 @@
-import type { Session, Tenant, User } from '@/types';
+import type { PlatformSession, SessionUser, Tenant, TenantSession, User } from '@/types';
 
 import { TENANT_ID } from './helpers';
 
@@ -23,11 +23,40 @@ export const mockUser: User = {
 
 export const DEMO_CREDENTIALS = { email: 'demo@megabot.app', password: 'megabot' };
 
+/** Demo platform admin (SUPER_ADMIN) with no tenant — mock mode only. */
+export const DEMO_PLATFORM_CREDENTIALS = { email: 'admin@megabot.app', password: 'megabot' };
+
+export const mockPlatformUser: SessionUser = {
+  id: 'usr_platform_01',
+  name: 'Equipa MegaBot',
+  email: DEMO_PLATFORM_CREDENTIALS.email,
+  phone: '',
+};
+
+const weekFromNow = () => new Date(Date.now() + 7 * 24 * 60 * 60_000).toISOString();
+
 /** Demo session; sign-up passes the typed names so the UI reflects them. */
-export function createMockSession(overrides: { name?: string; email?: string; businessName?: string } = {}): Session {
+export function createMockSession(overrides: { name?: string; email?: string; businessName?: string } = {}): TenantSession {
   return {
+    kind: 'tenant',
     user: { ...mockUser, name: overrides.name ?? mockUser.name, email: overrides.email ?? mockUser.email },
     tenant: { ...mockTenant, name: overrides.businessName ?? mockTenant.name },
-    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60_000).toISOString(),
+    platformAdmin: null,
+    expiresAt: weekFromNow(),
+  };
+}
+
+export function createMockPlatformSession(): PlatformSession {
+  return {
+    kind: 'platform',
+    user: mockPlatformUser,
+    tenant: null,
+    platformAdmin: {
+      isPlatformAdmin: true,
+      role: 'SUPER_ADMIN',
+      status: 'ACTIVE',
+      permissions: ['tenants.read', 'tenants.suspend', 'audit_logs.read', 'platform_admins.read'],
+    },
+    expiresAt: weekFromNow(),
   };
 }

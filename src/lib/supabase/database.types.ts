@@ -1,6 +1,6 @@
 /**
  * Database types for the Supabase client, in the format produced by
- * `supabase gen types typescript`. Written by hand for migrations 001–003
+ * `supabase gen types typescript`. Written by hand for migrations 001–004
  * because the database is not reachable from this environment — regenerate
  * once the CLI/MCP is available and keep in sync with supabase/migrations.
  *
@@ -231,6 +231,108 @@ export type Database = {
           },
         ];
       };
+      orders: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          product_id: string;
+          public_reference: string;
+          customer_name: string | null;
+          customer_phone: string;
+          product_name_snapshot: string;
+          product_price_snapshot: number;
+          currency_snapshot: string;
+          data_amount_snapshot: number | null;
+          data_unit_snapshot: string | null;
+          validity_hours_snapshot: number;
+          operator_snapshot: string;
+          status: string;
+          status_changed_at: string;
+          cancel_reason: string | null;
+          idempotency_key: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        /** Not writable through the API (no grants): use the create_order / cancel_order… RPCs. */
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          product_id: string;
+          public_reference?: string;
+          customer_name?: string | null;
+          customer_phone: string;
+          product_name_snapshot?: string;
+          product_price_snapshot?: number;
+          currency_snapshot?: string;
+          data_amount_snapshot?: number | null;
+          data_unit_snapshot?: string | null;
+          validity_hours_snapshot?: number;
+          operator_snapshot?: string;
+          status?: string;
+          status_changed_at?: string;
+          cancel_reason?: string | null;
+          idempotency_key?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          status?: string;
+          cancel_reason?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'orders_tenant_id_fkey';
+            columns: ['tenant_id'];
+            isOneToOne: false;
+            referencedRelation: 'tenants';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'orders_product_id_fkey';
+            columns: ['product_id'];
+            isOneToOne: false;
+            referencedRelation: 'products';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      order_events: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          order_id: string;
+          event_type: string;
+          actor_user_id: string | null;
+          from_status: string | null;
+          to_status: string;
+          metadata: Json;
+          created_at: string;
+        };
+        /** Written only by the database (triggers). */
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          order_id: string;
+          event_type: string;
+          actor_user_id?: string | null;
+          from_status?: string | null;
+          to_status: string;
+          metadata?: Json;
+          created_at?: string;
+        };
+        Update: {
+          [_ in never]: never;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'order_events_order_id_fkey';
+            columns: ['order_id'];
+            isOneToOne: false;
+            referencedRelation: 'orders';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       audit_logs: {
         Row: {
           id: string;
@@ -299,6 +401,22 @@ export type Database = {
       platform_list_tenant_products: {
         Args: { p_tenant_id: string };
         Returns: Database['public']['Tables']['products']['Row'][];
+      };
+      create_order: {
+        Args: { p_product_id: string; p_customer_phone: string; p_customer_name?: string; p_idempotency_key?: string };
+        Returns: Database['public']['Tables']['orders']['Row'][];
+      };
+      mark_order_awaiting_payment: {
+        Args: { p_order_id: string };
+        Returns: Database['public']['Tables']['orders']['Row'][];
+      };
+      cancel_order: {
+        Args: { p_order_id: string; p_reason?: string };
+        Returns: Database['public']['Tables']['orders']['Row'][];
+      };
+      order_status_counts: {
+        Args: { p_tenant_id: string };
+        Returns: { status: string; total: number }[];
       };
     };
     Enums: {

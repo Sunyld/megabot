@@ -25,11 +25,11 @@ export function LoginScreen() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
-  const [loading, setLoading] = useState<'form' | 'demo' | null>(null);
+  const [loading, setLoading] = useState<'form' | 'demo' | 'demoPlatform' | null>(null);
   // Guards against double taps before the disabled state renders.
   const submitting = useRef(false);
 
-  const submit = async (credentials = { email, password }, mode: 'form' | 'demo' = 'form') => {
+  const submit = async (credentials = { email, password }, mode: 'form' | 'demo' | 'demoPlatform' = 'form') => {
     if (submitting.current) return;
     const errors: typeof fieldErrors = {};
     if (!isValidEmail(credentials.email)) errors.email = 'Introduza um email válido.';
@@ -41,7 +41,7 @@ export function LoginScreen() {
     submitting.current = true;
     setLoading(mode);
     try {
-      // Resolves only once the tenant context is loaded; the router then opens the app.
+      // Resolves once the context (tenant app or platform area) is loaded; the router then opens it.
       await signIn(credentials);
     } catch (e) {
       setError(errorMessage(e));
@@ -51,11 +51,12 @@ export function LoginScreen() {
     }
   };
 
-  const signInWithDemo = () => {
+  const signInWithDemo = (kind: 'tenant' | 'platform') => {
     if (!demoCredentials) return;
-    setEmail(demoCredentials.email);
-    setPassword(demoCredentials.password);
-    void submit(demoCredentials, 'demo');
+    const credentials = demoCredentials[kind];
+    setEmail(credentials.email);
+    setPassword(credentials.password);
+    void submit(credentials, kind === 'tenant' ? 'demo' : 'demoPlatform');
   };
 
   return (
@@ -140,7 +141,16 @@ export function LoginScreen() {
                   fullWidth
                   loading={loading === 'demo'}
                   disabled={loading !== null}
-                  onPress={signInWithDemo}
+                  onPress={() => signInWithDemo('tenant')}
+                />
+                <Button
+                  label="Demo: administração da plataforma"
+                  icon="shield"
+                  variant="ghost"
+                  fullWidth
+                  loading={loading === 'demoPlatform'}
+                  disabled={loading !== null}
+                  onPress={() => signInWithDemo('platform')}
                 />
               </>
             )}

@@ -9,7 +9,6 @@ import { StatusBadge } from '@/components/ui/Badge';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import { Dialog } from '@/components/ui/Dialog';
 import { Icon } from '@/components/ui/Icon';
 import { Input } from '@/components/ui/Input';
 import { KeyValue } from '@/components/ui/KeyValue';
@@ -20,11 +19,12 @@ import { Skeleton, SkeletonCard } from '@/components/ui/Skeleton';
 import { Text } from '@/components/ui/Text';
 import { Timeline } from '@/components/ui/Timeline';
 import { toast } from '@/components/ui/Toast';
-import { orderStatusMeta, taskStatusMeta } from '@/constants/labels';
+import { orderEventLabels, orderStatusMeta, taskStatusMeta } from '@/constants/labels';
 import { TaskAttempts } from '@/features/automation/components/TaskAttempts';
 import {
   useCancelOrder,
   useConversations,
+  useMarkOrderAwaitingPayment,
   useOrder,
   useResendConfirmation,
   useRetryActivation,
@@ -32,16 +32,25 @@ import {
   useVerifyActivation,
 } from '@/hooks';
 import { errorMessage } from '@/services';
+import { ORDER_RULES } from '@/services/orderRules';
 import { createStyles, useTheme } from '@/theme';
-import type { Order } from '@/types';
-import { formatDateTime, formatDayLabel, formatDuration, formatMoney, formatPhone, formatTime } from '@/utils/format';
+import type { Order, OrderEvent } from '@/types';
+import {
+  formatDataAmount,
+  formatDateTime,
+  formatDayLabel,
+  formatDuration,
+  formatPhone,
+  formatPrice,
+  formatTime,
+} from '@/utils/format';
 
-import { buildOrderTimeline } from '../timeline';
+import { buildOrderTimeline, isVerifyingActivation } from '../timeline';
 
 function statusExplanation(order: Order): string {
-  const activated = order.events.find((e) => e.type === 'activated');
   switch (order.status) {
-    case 'completed': {
+    case 'COMPLETED': {
+      const activated = order.events.find((e) => e.type === 'activated');
       const seconds = activated ? (new Date(activated.at).getTime() - new Date(order.createdAt).getTime()) / 1000 : 0;
       const manual = order.events.some((e) => e.type === 'payment_confirmed' && e.description?.includes('manualmente'));
       if (seconds <= 0) return 'Pacote entregue ao cliente.';
@@ -49,27 +58,40 @@ function statusExplanation(order: Order): string {
         ? `Pacote entregue ${formatDuration(seconds)} depois do pedido, após a sua aprovação do pagamento.`
         : `Pacote entregue ${formatDuration(seconds)} depois do pedido, sem intervenção humana.`;
     }
-    case 'awaiting_destination':
-      return 'O cliente ainda não indicou o número que vai receber o pacote.';
-    case 'awaiting_payment':
-      return 'Comprovativo recebido. A aguardar a mensagem de confirmação da carteira para validar o ID da transação.';
-    case 'payment_review':
+    case 'PENDING':
+      return order.destination
+        ? 'Pedido registado. Envie os dados de pagamento ao cliente e marque-o como "a aguardar pagamento".'
+        : 'O cliente ainda não indicou o número que vai receber o pacote.';
+    case 'AWAITING_PAYMENT':
+      return order.paymentId
+        ? 'Comprovativo recebido. A aguardar a mensagem de confirmação da carteira para validar o ID da transação.'
+        : 'A aguardar o pagamento do cliente.';
+    case 'VERIFYING':
       return 'Os dados do pagamento não coincidem com o pedido. A decisão é sua.';
-    case 'paid':
+    case 'PAID':
+      return 'Pagamento confirmado.';
+    case 'READY_FOR_ACTIVATION':
       return 'Pagamento confirmado por regras. A ativação está na fila.';
-    case 'processing':
-      return 'O USSD está a ser executado num dos seus dispositivos.';
-    case 'verifying':
-      return 'O USSD foi enviado mas a operadora não confirmou. O MegaBot verifica o resultado antes de repetir — nunca duplica uma ativação.';
-    case 'failed':
+    case 'ACTIVATING':
+      return isVerifyingActivation(order)
+        ? 'O USSD foi enviado mas a operadora não confirmou. O MegaBot verifica o resultado antes de repetir — nunca duplica uma ativação.'
+        : 'O USSD está a ser executado num dos seus dispositivos.';
+    case 'FAILED':
       return order.failureReason ?? 'A ativação falhou.';
-    case 'cancelled':
-      return 'Este pedido foi cancelado e não será ativado.';
+    case 'CANCELLED':
+      return order.cancelReason ? `Pedido cancelado: ${order.cancelReason}` : 'Este pedido foi cancelado e não será ativado.';
+    case 'EXPIRED':
+      return 'O prazo para pagamento terminou. Este pedido expirou e não será ativado.';
   }
 }
 
-const hasFooterAction = (order: Order) =>
-  ['failed', 'verifying', 'payment_review', 'completed', 'awaiting_destination', 'awaiting_payment'].includes(order.status);
+/** One line per history entry: "Pendente → Aguarda pagamento", reasons, demo journey details. */
+function eventSubtitle(event: OrderEvent): string | undefined {
+  if (event.type === 'status_changed' && event.fromStatus && event.toStatus) {
+    return `${orderStatusMeta[event.fromStatus].label} → ${orderStatusMeta[event.toStatus].label}`;
+  }
+  return event.description;
+}
 
 function DetailSkeleton() {
   const styles = useStyles();
@@ -93,11 +115,13 @@ export function OrderDetailScreen() {
   const retry = useRetryActivation();
   const verify = useVerifyActivation();
   const cancel = useCancelOrder();
+  const requestPayment = useMarkOrderAwaitingPayment();
   const resend = useResendConfirmation();
 
   const [retryOpen, setRetryOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [destination, setDestination] = useState('');
+  const [cancelReason, setCancelReason] = useState('');
 
   const conversation = conversations.data?.find((c) => c.orderId === id);
   const destinationValid = destination.replace(/\D/g, '').length === 9;
@@ -126,10 +150,20 @@ export function OrderDetailScreen() {
     }
   };
 
+  const runRequestPayment = async () => {
+    try {
+      await requestPayment.mutateAsync(id);
+      toast.success('A aguardar pagamento', 'O pedido passou para "Aguarda pagamento".');
+    } catch (e) {
+      toast.error('Não foi possível atualizar', errorMessage(e));
+    }
+  };
+
   const runCancel = async () => {
     try {
-      await cancel.mutateAsync(id);
+      await cancel.mutateAsync({ id, reason: cancelReason });
       setCancelOpen(false);
+      setCancelReason('');
       toast.success('Pedido cancelado');
     } catch (e) {
       toast.error('Não foi possível cancelar', errorMessage(e));
@@ -146,6 +180,17 @@ export function OrderDetailScreen() {
   };
 
   const data = order.data;
+  const actions = data
+    ? {
+        requestPayment: data.status === 'PENDING' && data.destination !== null,
+        cancel: data.status === 'PENDING' || data.status === 'AWAITING_PAYMENT',
+        reviewPayment: data.status === 'VERIFYING' && data.paymentId !== null,
+        retry: data.status === 'FAILED' && data.taskId !== null,
+        verify: isVerifyingActivation(data) && data.taskId !== null,
+        resend: data.status === 'COMPLETED' && data.channel !== null,
+      }
+    : null;
+  const hasFooterAction = actions ? Object.values(actions).some(Boolean) : false;
 
   return (
     <Screen
@@ -162,15 +207,18 @@ export function OrderDetailScreen() {
         />
       }
       footer={
-        data && hasFooterAction(data) ? (
+        data && actions && hasFooterAction ? (
           <View style={styles.footer}>
-            {data.status === 'failed' && (
+            {actions.requestPayment && (
+              <Button label="Pedir pagamento" icon="wallet" fullWidth loading={requestPayment.isPending} onPress={runRequestPayment} />
+            )}
+            {actions.retry && (
               <Button label="Corrigir número e repetir" icon="refresh" fullWidth onPress={() => openRetry(data.destination)} />
             )}
-            {data.status === 'verifying' && (
+            {actions.verify && (
               <Button label="Verificar agora" icon="history" fullWidth loading={verify.isPending} onPress={runVerify} />
             )}
-            {data.status === 'payment_review' && data.paymentId && (
+            {actions.reviewPayment && (
               <Button
                 label="Rever pagamento"
                 icon="payments"
@@ -178,10 +226,10 @@ export function OrderDetailScreen() {
                 onPress={() => router.push({ pathname: '/payments/[id]', params: { id: data.paymentId! } })}
               />
             )}
-            {data.status === 'completed' && (
+            {actions.resend && (
               <Button label="Reenviar confirmação" icon="send" variant="secondary" fullWidth loading={resend.isPending} onPress={runResend} />
             )}
-            {(data.status === 'awaiting_destination' || data.status === 'awaiting_payment') && (
+            {actions.cancel && (
               <Button label="Cancelar pedido" icon="cancel" variant="danger" fullWidth onPress={() => setCancelOpen(true)} />
             )}
           </View>
@@ -194,11 +242,7 @@ export function OrderDetailScreen() {
               padding={16}
               style={[styles.statusCard, { backgroundColor: colors.tones[orderStatusMeta[o.status].tone].bg, borderColor: 'transparent' }]}>
               <View style={styles.statusRow}>
-                <Icon
-                  name={orderStatusMeta[o.status].icon}
-                  size={24}
-                  color={colors.tones[orderStatusMeta[o.status].tone].fg}
-                />
+                <Icon name={orderStatusMeta[o.status].icon} size={24} color={colors.tones[orderStatusMeta[o.status].tone].fg} />
                 <Text variant="title3" colorValue={colors.tones[orderStatusMeta[o.status].tone].fg}>
                   {orderStatusMeta[o.status].label}
                 </Text>
@@ -220,16 +264,21 @@ export function OrderDetailScreen() {
                   <Text variant="overline" color="muted">
                     Preço
                   </Text>
-                  <Text variant="title1">{formatMoney(o.price)}</Text>
+                  <Text variant="title1">{formatPrice(o.price, o.currency)}</Text>
                 </View>
               </View>
               <View style={styles.kv}>
+                <KeyValue label="Dados" value={formatDataAmount(o.dataAmount, o.dataUnit)} />
                 <KeyValue label="Número de destino" value={o.destination ? formatPhone(o.destination) : 'Pendente'} />
-                <KeyValue label="Cliente" value={o.customer.name} />
-                <KeyValue label="WhatsApp" value={formatPhone(o.customer.whatsapp)} />
-                <KeyValue label="Canal" value={o.channel.name} />
+                <KeyValue label="Cliente" value={o.customer.name ?? '—'} />
+                {o.customer.whatsapp ? <KeyValue label="WhatsApp" value={formatPhone(o.customer.whatsapp)} /> : null}
+                <KeyValue label="Canal" value={o.channel?.name ?? 'Registado na app'} />
+                <KeyValue label="Referência" value={o.code} mono />
                 <KeyValue label="Criado em" value={formatDateTime(o.createdAt, true)} last />
               </View>
+              <Text variant="caption" color="muted" style={styles.snapshotNote}>
+                Produto, preço e dados ficam fixados no momento do pedido — alterações futuras ao produto não mudam este pedido.
+              </Text>
             </Card>
 
             <Section title="Pagamento">
@@ -244,7 +293,7 @@ export function OrderDetailScreen() {
                     onPress={() => router.push({ pathname: '/payments/[id]', params: { id: o.paymentId! } })}
                   />
                 ) : (
-                  <ListItem icon="pending" iconTone="warning" title="Sem pagamento" subtitle="O cliente ainda não enviou o comprovativo." />
+                  <ListItem icon="pending" iconTone="warning" title="Sem pagamento" subtitle="Nenhum pagamento associado a este pedido." />
                 )}
               </ListGroup>
             </Section>
@@ -253,6 +302,22 @@ export function OrderDetailScreen() {
               <Card>
                 <Timeline items={buildOrderTimeline(o)} />
               </Card>
+            </Section>
+
+            <Section title="Histórico" subtitle="Registo de cada alteração do pedido.">
+              <ListGroup>
+                {[...o.events].reverse().map((event, index, list) => (
+                  <ListItem
+                    key={event.id}
+                    icon={event.type === 'cancelled' || event.type === 'expired' || event.type === 'failed' ? 'cancel' : 'history'}
+                    iconTone={event.type === 'cancelled' || event.type === 'failed' ? 'danger' : 'neutral'}
+                    title={orderEventLabels[event.type]}
+                    subtitle={eventSubtitle(event)}
+                    value={formatDateTime(event.at)}
+                    divider={index < list.length - 1}
+                  />
+                ))}
+              </ListGroup>
             </Section>
 
             {o.taskId && (
@@ -264,9 +329,7 @@ export function OrderDetailScreen() {
                     <>
                       <KeyValue label="Tarefa" value={task.data.code} mono />
                       <KeyValue label="Código USSD" value={task.data.ussdCode} mono />
-                      {task.data.operatorResponse ? (
-                        <KeyValue label="Resposta" value={task.data.operatorResponse} last />
-                      ) : null}
+                      {task.data.operatorResponse ? <KeyValue label="Resposta" value={task.data.operatorResponse} last /> : null}
                       <TaskAttempts attempts={task.data.attempts} />
                     </>
                   ) : (
@@ -313,23 +376,27 @@ export function OrderDetailScreen() {
         />
       </BottomSheet>
 
-      <Dialog
+      <BottomSheet
         visible={cancelOpen}
         onClose={() => setCancelOpen(false)}
-        icon="cancel"
-        tone="danger"
         title="Cancelar pedido?"
-        message="O cliente será informado no WhatsApp. Esta ação não pode ser desfeita."
-        confirmLabel="Cancelar pedido"
-        cancelLabel="Voltar"
-        confirmVariant="danger"
-        loading={cancel.isPending}
-        onConfirm={runCancel}
-      />
+        subtitle="O pedido deixa de poder ser pago ou ativado. Esta ação não pode ser desfeita."
+        footer={
+          <Button label="Cancelar pedido" icon="cancel" variant="danger" fullWidth loading={cancel.isPending} onPress={runCancel} />
+        }>
+        <Input
+          label="Motivo (opcional)"
+          icon="info"
+          value={cancelReason}
+          onChangeText={setCancelReason}
+          maxLength={ORDER_RULES.reasonMax}
+          placeholder="Ex.: cliente desistiu"
+          hint="Fica registado no histórico do pedido."
+        />
+      </BottomSheet>
     </Screen>
   );
 }
-
 
 const taskMeta = (status: keyof typeof taskStatusMeta) => {
   const { label, tone, icon } = taskStatusMeta[status];
@@ -362,6 +429,9 @@ const useStyles = createStyles((t) => ({
   kv: {
     borderTopWidth: 1,
     borderTopColor: t.colors.border,
+  },
+  snapshotNote: {
+    paddingTop: t.spacing.sm,
   },
   taskCard: {
     gap: t.spacing.xs,

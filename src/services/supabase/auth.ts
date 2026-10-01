@@ -1,7 +1,8 @@
-import type { Session } from '@/types';
+import type { PlatformAdminContext, Session } from '@/types';
 
 import { assertValidNewPassword, assertValidSignUp, isValidEmail } from '../authValidation';
 import { AppError } from '../errors';
+import { noPlatformAccess } from '../platformAdmin';
 import type { AuthEvent, AuthService } from '../types';
 import { logAuthError, toAppError, type AuthErrorContext } from './errors';
 import {
@@ -11,7 +12,8 @@ import {
   type GatewayAuthEvent,
   type GatewaySession,
 } from './gateway';
-import { readDisplayName, selectMembership, toSessionUser } from './tenancy';
+import { toPlatformAdminContext } from './platformAdmin';
+import { readDisplayName, selectMembership, toSessionIdentity, toSessionUser } from './tenancy';
 
 export type SupabaseAuthOptions = {
   /** Deep link Supabase sends users back to from the reset email (e.g. megabot://reset-password). */
@@ -55,31 +57,90 @@ export function mapAuthEvent(event: GatewayAuthEvent, session: GatewaySession | 
   }
 }
 
+/** Why an authenticated user cannot open any area of the app. */
+type AccessDenied = { denied: 'TENANT_NOT_FOUND' | 'PLATFORM_ADMIN_SUSPENDED' };
+type ContextResult = { session: Session } | AccessDenied;
+
+function accessDeniedError(result: AccessDenied): AppError {
+  return result.denied === 'PLATFORM_ADMIN_SUSPENDED'
+    ? new AppError(
+        'PERMISSION_DENIED',
+        'O seu acesso de administração da plataforma está suspenso. Contacte um super-administrador do MegaBot.',
+        { reason: 'PLATFORM_ADMIN_SUSPENDED' }
+      )
+    : new AppError(
+        'NOT_FOUND',
+        'Esta conta não está associada a nenhuma empresa. Se acabou de se registar, tente novamente; caso contrário contacte o suporte.',
+        { reason: 'TENANT_NOT_FOUND' }
+      );
+}
+
+/** RPC not deployed (database without migration 002): nobody is a platform admin. */
+function isMissingFunction(error: unknown): boolean {
+  const sqlState = toAppError(error).detail?.split(' | ')[0];
+  return sqlState === 'PGRST202' || sqlState === '42883';
+}
+
 /**
- * Supabase Auth + tenant context.
+ * Supabase Auth + app context.
  *
- * The app only ever calls auth endpoints and reads its own memberships:
- * tenants, memberships and settings are provisioned by the database trigger
- * (migration 001), never inserted from here. The tenant is derived from
- * tenant_users under RLS (auth.uid()), never from client input.
+ * The app only ever calls auth endpoints and reads its own memberships and
+ * platform access: tenants, memberships and settings are provisioned by the
+ * database trigger (migration 001), never inserted from here. The tenant is
+ * derived from tenant_users under RLS (auth.uid()), never from client input,
+ * and platform access only from platform_admins (migration 002).
  */
 export function createSupabaseAuthService(gateway: AuthGateway, options: SupabaseAuthOptions): AuthService {
   // Concurrent context loads for the same user share one request.
-  let inflight: { userId: string; promise: Promise<Session | null> } | null = null;
+  let inflight: { userId: string; promise: Promise<ContextResult> } | null = null;
 
-  /** auth session → tenant_users → tenant → tenant_settings → Session (null: no membership). */
-  function loadContext(session: GatewaySession): Promise<Session | null> {
+  async function readPlatformAccess(): Promise<PlatformAdminContext> {
+    try {
+      return toPlatformAdminContext(await gateway.fetchPlatformAccess());
+    } catch (error) {
+      if (isMissingFunction(error)) return noPlatformAccess();
+      throw error;
+    }
+  }
+
+  /**
+   * auth session → which area opens:
+   *  1. ACTIVE platform admin → platform area (with or without a tenant);
+   *  2. otherwise a tenant membership → tenant app (tenant + settings);
+   *  3. otherwise no access (suspended platform admins get their own message).
+   */
+  function loadContext(session: GatewaySession): Promise<ContextResult> {
     if (inflight && inflight.userId === session.user.id) return inflight.promise;
 
-    const promise = (async () => {
-      const records = await gateway.fetchMemberships(session.user.id);
+    const promise = (async (): Promise<ContextResult> => {
+      const [records, platformAdmin] = await Promise.all([
+        gateway.fetchMemberships(session.user.id),
+        readPlatformAccess(),
+      ]);
+      if (platformAdmin.isPlatformAdmin) {
+        return {
+          session: {
+            kind: 'platform',
+            user: toSessionIdentity(session.user),
+            tenant: null,
+            platformAdmin,
+            expiresAt: session.expiresAt,
+          },
+        };
+      }
       const membership = selectMembership(records);
-      if (!membership) return null;
-      return {
-        user: toSessionUser(session.user, membership.role),
-        tenant: membership.tenant,
-        expiresAt: session.expiresAt,
-      };
+      if (membership) {
+        return {
+          session: {
+            kind: 'tenant',
+            user: toSessionUser(session.user, membership.role),
+            tenant: membership.tenant,
+            platformAdmin: null,
+            expiresAt: session.expiresAt,
+          },
+        };
+      }
+      return { denied: platformAdmin.status === 'SUSPENDED' ? 'PLATFORM_ADMIN_SUSPENDED' : 'TENANT_NOT_FOUND' };
     })();
 
     inflight = { userId: session.user.id, promise };
@@ -108,7 +169,7 @@ export function createSupabaseAuthService(gateway: AuthGateway, options: Supabas
         );
       }
 
-      let context: Session | null;
+      let context: ContextResult;
       try {
         context = await loadContext(session);
       } catch (error) {
@@ -124,7 +185,7 @@ export function createSupabaseAuthService(gateway: AuthGateway, options: Supabas
         return fail('sign_up', appError);
       }
 
-      if (!context) {
+      if ('denied' in context) {
         // The account exists but the backend did not provision its tenant.
         await gateway.signOutLocally();
         return fail(
@@ -136,7 +197,7 @@ export function createSupabaseAuthService(gateway: AuthGateway, options: Supabas
           )
         );
       }
-      return context;
+      return context.session;
     },
 
     async signIn({ email, password }) {
@@ -147,7 +208,7 @@ export function createSupabaseAuthService(gateway: AuthGateway, options: Supabas
         return fail('sign_in', error);
       }
 
-      let context: Session | null;
+      let context: ContextResult;
       try {
         context = await loadContext(session);
       } catch (error) {
@@ -155,15 +216,11 @@ export function createSupabaseAuthService(gateway: AuthGateway, options: Supabas
         return fail('sign_in', error);
       }
 
-      if (!context) {
+      if ('denied' in context) {
         await gateway.signOutLocally();
-        throw new AppError(
-          'NOT_FOUND',
-          'Esta conta não está associada a nenhuma empresa. Se acabou de se registar, tente novamente; caso contrário contacte o suporte.',
-          { reason: 'TENANT_NOT_FOUND' }
-        );
+        throw accessDeniedError(context);
       }
-      return context;
+      return context.session;
     },
 
     async signOut() {
@@ -185,7 +242,7 @@ export function createSupabaseAuthService(gateway: AuthGateway, options: Supabas
       }
       if (!session) return null;
 
-      let context: Session | null;
+      let context: ContextResult;
       try {
         context = await loadContext(session);
       } catch (error) {
@@ -195,13 +252,11 @@ export function createSupabaseAuthService(gateway: AuthGateway, options: Supabas
         return fail('session', appError);
       }
 
-      if (!context) {
+      if ('denied' in context) {
         await gateway.signOutLocally();
-        throw new AppError('NOT_FOUND', 'Esta conta não está associada a nenhuma empresa.', {
-          reason: 'TENANT_NOT_FOUND',
-        });
+        throw accessDeniedError(context);
       }
-      return context;
+      return context.session;
     },
 
     onAuthEvent(listener) {

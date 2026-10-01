@@ -2,7 +2,7 @@ import { createContext, use, useEffect, useState, useSyncExternalStore, type Pro
 
 import { clearQueryCache } from '@/lib/query';
 import { api, serviceContext } from '@/services';
-import type { Session, SignInCredentials, SignUpInput } from '@/types';
+import type { PlatformSession, Session, SignInCredentials, SignUpInput, TenantSession } from '@/types';
 
 import { createSessionController, type SessionController, type SessionStatus } from './sessionController';
 
@@ -73,9 +73,16 @@ export function useSession() {
   return context;
 }
 
-/** Signed-in session (only call from authenticated screens). */
-export function useCurrentSession(): Session {
+/** Tenant session (only call from tenant-app screens, which are guarded by status). */
+export function useCurrentSession(): TenantSession {
   const { session } = useSession();
-  if (!session) throw new Error('No active session');
+  if (session?.kind !== 'tenant') throw new Error('No active tenant session');
+  return session;
+}
+
+/** Platform admin session (only call from platform-area screens). */
+export function usePlatformSession(): PlatformSession {
+  const { session } = useSession();
+  if (session?.kind !== 'platform') throw new Error('No active platform session');
   return session;
 }

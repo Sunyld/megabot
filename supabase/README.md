@@ -12,6 +12,8 @@ aborta sem alterar nada se encontrar objetos já existentes.
 | `tests/002_platform_admin.test.sql` | Verificação da 002 (transação revertida) |
 | `migrations/003_products.sql` | `products` por tenant, fluxo USSD por produto (validado), RLS com bloqueio de escrita a tenants suspensos, arquivo e auditoria |
 | `tests/003_products.test.sql` | Verificação da 003 (transação revertida) |
+| `migrations/004_orders.sql` | `orders` (snapshot, referência pública, idempotência, máquina de estados) + `order_events` (histórico append-only) |
+| `tests/004_orders.test.sql` | Verificação da 004 (transação revertida) |
 
 ## Aplicar a 001
 
@@ -59,11 +61,21 @@ returning user_id, role, status;
 -- Revogar:   delete from public.platform_admins where user_id = '<uuid>';
 ```
 
-> **Limitação atual do app:** o login exige uma empresa (sem membership →
-> "Esta conta não está associada a nenhuma empresa"). Uma conta só de plataforma ainda
-> não entra no app; a futura área de Platform Admin tem de consultar
-> `platform_admin_context()` antes de exigir membership. O acesso de plataforma já
-> funciona na base de dados (RPCs `platform_*`).
+### Login de platform admins (Fase 5)
+
+Depois do login o app decide a área **antes** de exigir uma empresa:
+
+| Conta | Resultado |
+|---|---|
+| `platform_admins.status = ACTIVE` (com ou sem empresa) | Área **Plataforma** (`/platform`), sem empresa |
+| Membro de empresa ativa (e não platform admin ativo) | App da empresa (dashboard) |
+| Membro de empresa suspensa | Ecrã "Empresa suspensa" |
+| `platform_admins.status = SUSPENDED` **sem** empresa | Acesso negado: "O seu acesso de administração da plataforma está suspenso" |
+| `SUSPENDED` **com** empresa | App da empresa (o estado de plataforma não afeta o tenant) |
+| Sem empresa e sem acesso de plataforma | "Esta conta não está associada a nenhuma empresa" |
+
+Nunca é criada uma empresa para o platform admin. O papel `admin` de uma empresa não dá
+acesso à plataforma.
 
 Cada promoção, mudança de papel/estado ou revogação fica registada em `audit_logs`
 (`platform_admin.granted|role_changed|suspended|reactivated|revoked`; `actor_user_id`
@@ -181,6 +193,73 @@ alterados, estado — nunca o corpo do fluxo USSD nem segredos).
    rollback;
    ```
 
+## Aplicar a 004 (Pedidos)
+
+Requer a 001, 002 **e a 003** aplicadas (a 004 aborta sem alterar nada se faltar alguma).
+Não altera nenhum objeto da 001–003.
+
+1. SQL Editor → nova query → colar `migrations/004_orders.sql` → **Run**
+   ("Success. No rows returned"). `Migration 004 abortada: …` = nada foi alterado.
+2. Nova query → colar `tests/004_orders.test.sql` → **Run** → último resultado
+   `PASS — 004_orders …` (transação revertida: não deixa pedidos de teste).
+3. No app (modo `supabase`): **Pedidos → +** regista um pedido para um produto ativo.
+
+### Modelo
+
+- `orders`: `product_id` (FK, produto do **mesmo** tenant, ativo e não arquivado),
+  `public_reference` (`MB-AAAAMMDD-XXXXXXXX`, aleatório — não revela volumes nem é enumerável),
+  `customer_name` (opcional), `customer_phone` (E.164 em `text`; números +258 têm de ser
+  móveis 82–87; outros países em E.164), **snapshot** do produto (`product_name_snapshot`,
+  `product_price_snapshot`, `currency_snapshot`, `data_amount_snapshot`, `data_unit_snapshot`,
+  validade e operadora), `status`, `cancel_reason`, `idempotency_key`.
+- O snapshot é sempre copiado do produto **pelo servidor** (trigger) — o app nunca envia preços.
+  Alterar o produto depois não muda pedidos existentes. O fluxo USSD **não** é copiado: continua
+  no produto (`orders.product_id`).
+- `order_events`: histórico append-only (`order.created`, `order.status_changed`,
+  `order.cancelled`, `order.expired`) com ator, estado anterior/novo e metadata validada.
+  É o histórico operacional do pedido; `audit_logs` (002) continua a ser a auditoria da plataforma.
+
+### Estados
+
+```text
+PENDING ──▶ AWAITING_PAYMENT ──▶ PAID ──▶ READY_FOR_ACTIVATION ──▶ ACTIVATING ──▶ COMPLETED
+   │              │  ▲                          ▲        │               │
+   │              ▼  │                          │        ▼               ▼
+   │           VERIFYING (pagamento em verificação)     FAILED ◀─────────┘
+   ▼              │                                       │ retry → READY_FOR_ACTIVATION
+CANCELLED / EXPIRED (a partir de PENDING, AWAITING_PAYMENT, VERIFYING*, FAILED*)
+```
+
+(* VERIFYING e FAILED só podem passar a CANCELLED; EXPIRED só a partir de PENDING/AWAITING_PAYMENT.)
+A tabela completa está em `private.order_status_transition_allowed` e é imposta por trigger
+para **todos** os papéis (incluindo `service_role`). Os dados do pedido são imutáveis depois de criado.
+
+### Comandos (únicas escritas pela API)
+
+| RPC | Quem | Efeito |
+|---|---|---|
+| `create_order(product_id, phone, name?, idempotency_key?)` | owner / admin / operator de empresa ativa | Pedido `PENDING`; a mesma chave devolve o mesmo pedido |
+| `mark_order_awaiting_payment(order_id)` | idem | `PENDING → AWAITING_PAYMENT` |
+| `cancel_order(order_id, reason?)` | idem | `→ CANCELLED` onde a máquina de estados permite |
+| `order_status_counts(tenant_id)` | membros (RLS) | Totais por estado |
+
+Sem INSERT/UPDATE/DELETE diretos para `authenticated`; `anon` sem acesso; tenant suspenso lê o
+histórico mas não cria nem altera pedidos; platform admins não ganham acesso a pedidos de
+empresas nas queries normais. `PAID`, ativação e expiração automática chegam nas próximas fases
+(Payments / worker Android).
+
+### Testes manuais (Fase 5)
+
+1. **Platform admin sem empresa** — entrar com a conta promovida: abre a área **Plataforma**
+   (lista de empresas só de leitura). Nenhuma empresa é criada.
+2. **Platform admin suspenso** — `update public.platform_admins set status = 'SUSPENDED' where user_id = '<uuid>';`
+   → o login mostra "acesso … suspenso". Repor com `status = 'ACTIVE'`.
+3. **Utilizador de empresa** — login abre o dashboard como antes.
+4. **Pedido** — Pedidos → **+** → escolher produto ativo, número `84 123 4567` → Registar:
+   referência `MB-…`, estado *Pendente*, histórico com "Pedido criado".
+   **Pedir pagamento** → *Aguarda pagamento*; **Cancelar pedido** (motivo opcional) → *Cancelado*.
+5. **Snapshot** — alterar o preço do produto: o pedido mantém o preço antigo.
+
 ## Ligar o app ao Supabase
 
 1. Em `.env`: `EXPO_PUBLIC_DATA_SOURCE=supabase`, `EXPO_PUBLIC_SUPABASE_URL` e a chave
@@ -189,8 +268,9 @@ alterados, estado — nunca o corpo do fluxo USSD nem segredos).
    (variáveis `EXPO_PUBLIC_*` são embutidas no bundle; sem `--clear` o valor antigo pode persistir).
 3. No app: **Criar conta** → nome, loja, email, palavra-passe + confirmação. O trigger cria o
    tenant e o utilizador fica como `owner`. Login, sessão persistente e logout passam a ser reais.
-4. Os restantes domínios (pedidos, pagamentos, dispositivos…) continuam com dados de
-   demonstração até às próximas migrations.
+4. Produtos e pedidos são reais. Os domínios que ainda não estão no backend (pagamentos,
+   dispositivos, SIMs, WhatsApp, automação) aparecem **vazios** no modo `supabase` — os dados de
+   demonstração só existem no modo `mock` e nunca se misturam com dados reais.
 
 ## Definições do Auth (Dashboard)
 
@@ -304,6 +384,10 @@ autorização    platform_admins (ACTIVE) → papel de plataforma → permissõe
   `src/lib/supabase/database.types.ts` (ou é regenerado com `supabase gen types`).
 - Ações sensíveis são auditadas no servidor com `private.write_audit_log(...)` (dentro de
   funções `SECURITY DEFINER` em `private`), nunca escritas pelo app.
+- Escritas com regras de negócio (estados, snapshots) são **comandos RPC**: função
+  `SECURITY DEFINER` em `private` (autoriza explicitamente: membro do tenant + tenant ativo) e
+  wrapper `SECURITY INVOKER` em `public`; triggers impõem as invariantes para todos os papéis
+  (padrão da 004).
 - Desde a 003, as policies de escrita de tabelas de tenant exigem também
   `private.tenant_is_active(tenant_id)` (tenant suspenso = só leitura). As tabelas da 001
   ainda não têm esta regra (não foram alteradas).

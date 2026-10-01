@@ -21,5 +21,4 @@ export const mockServices: Services = {
   platformAdmin: mockPlatformAdminService,
 };
 
-export { orderFilterStatuses } from './orders';
 export { setSimulation, simulationStore, useSimulation, type SimulationSettings } from './simulation';

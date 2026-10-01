@@ -1,4 +1,4 @@
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useDeferredValue, useState } from 'react';
 import { RefreshControl, SectionList, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -6,12 +6,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ConnectivityBanner } from '@/components/layout/ConnectivityBanner';
 import { ScreenHeader } from '@/components/layout/Headers';
 import { ChipGroup } from '@/components/ui/Chips';
+import { IconButton } from '@/components/ui/IconButton';
 import { SearchInput } from '@/components/ui/Input';
 import { SkeletonList } from '@/components/ui/Skeleton';
 import { EmptyState, ErrorState } from '@/components/ui/States';
 import { Text } from '@/components/ui/Text';
 import { orderFilterOptions } from '@/constants/labels';
 import { useNow, useOrderCounts, useOrders } from '@/hooks';
+import { SOLD_STATUSES } from '@/services/orderRules';
 import { createStyles, useTheme } from '@/theme';
 import type { Order, OrderFilter } from '@/types';
 import { formatDayLabel, formatMoney } from '@/utils/format';
@@ -19,7 +21,7 @@ import { formatDayLabel, formatMoney } from '@/utils/format';
 import { OrderCard } from '../components/OrderCard';
 
 const emptyCopy: Record<OrderFilter, { title: string; description: string }> = {
-  all: { title: 'Ainda sem pedidos', description: 'Os pedidos criados pelo MegaBot no WhatsApp aparecem aqui.' },
+  all: { title: 'Ainda sem pedidos', description: 'Os pedidos do WhatsApp e os que registar com + aparecem aqui.' },
   pending: { title: 'Nada pendente', description: 'Todos os clientes já enviaram número e pagamento.' },
   paid: { title: 'Sem pedidos na fila', description: 'Pagamentos confirmados são ativados em segundos.' },
   processing: { title: 'Nada em processamento', description: 'Não há ativações em curso neste momento.' },
@@ -37,7 +39,7 @@ function groupByDay(orders: Order[], now: number) {
       sections.push(section);
     }
     section.data.push(order);
-    if (['completed', 'paid', 'processing', 'verifying', 'failed'].includes(order.status)) section.total += order.price;
+    if (SOLD_STATUSES.includes(order.status)) section.total += order.price;
   }
   return sections;
 }
@@ -78,7 +80,7 @@ export function OrdersScreen() {
         <EmptyState
           icon="search"
           title="Sem resultados"
-          description={`Nenhum pedido corresponde a “${deferredSearch}”. Pesquise por código, número ou ID de transação.`}
+          description={`Nenhum pedido corresponde a “${deferredSearch}”. Pesquise por referência, número ou nome do cliente.`}
         />
       );
     }
@@ -90,11 +92,12 @@ export function OrdersScreen() {
       <ScreenHeader
         title="Pedidos"
         subtitle={counts.data ? `${counts.data.all} pedidos · ${counts.data.pending} pendentes` : 'A carregar…'}
+        right={<IconButton icon="add" accessibilityLabel="Novo pedido" onPress={() => router.push('/orders/new')} />}
       />
       <ConnectivityBanner />
       <View style={styles.controls}>
         <View style={styles.search}>
-          <SearchInput value={search} onChangeText={setSearch} placeholder="Código, número ou ID de transação" />
+          <SearchInput value={search} onChangeText={setSearch} placeholder="Referência, número ou cliente" />
         </View>
         <ChipGroup options={options} value={filter} onChange={setFilter} />
       </View>

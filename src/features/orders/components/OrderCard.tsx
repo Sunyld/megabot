@@ -8,7 +8,7 @@ import { Text } from '@/components/ui/Text';
 import { orderStatusMeta } from '@/constants/labels';
 import { createStyles, useTheme } from '@/theme';
 import type { Order } from '@/types';
-import { formatMoney, formatPhone, formatRelative } from '@/utils/format';
+import { formatPhone, formatPrice, formatRelative } from '@/utils/format';
 
 export function OrderCard({ order, now }: { order: Order; now?: number }) {
   const { colors } = useTheme();
@@ -19,7 +19,7 @@ export function OrderCard({ order, now }: { order: Order; now?: number }) {
     <Card
       padding={14}
       onPress={() => router.push({ pathname: '/orders/[id]', params: { id: order.id } })}
-      accessibilityLabel={`Pedido ${order.code}, ${order.productName}, ${formatMoney(order.price)}, ${status.label}`}
+      accessibilityLabel={`Pedido ${order.code}, ${order.productName}, ${formatPrice(order.price, order.currency)}, ${status.label}`}
       style={styles.card}>
       <View style={styles.row}>
         <Text variant="mono" color="secondary">
@@ -32,7 +32,7 @@ export function OrderCard({ order, now }: { order: Order; now?: number }) {
         <Text variant="title2" numberOfLines={1} style={styles.flex}>
           {order.productName}
         </Text>
-        <Text variant="title2">{formatMoney(order.price)}</Text>
+        <Text variant="title2">{formatPrice(order.price, order.currency)}</Text>
       </View>
 
       <View style={styles.details}>
@@ -58,7 +58,7 @@ export function OrderCard({ order, now }: { order: Order; now?: number }) {
 
       <View style={styles.footer}>
         <Text variant="caption" color="muted" numberOfLines={1} style={styles.flex}>
-          {`${order.customer.name} · ${order.channel.name}`}
+          {`${order.customer.name ?? 'Cliente'} · ${order.channel?.name ?? 'Registado na app'}`}
         </Text>
         <Text variant="caption" color="muted">
           {formatRelative(order.createdAt, now)}

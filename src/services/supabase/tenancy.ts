@@ -7,7 +7,7 @@
  * allowed the user to see. The resulting tenant id is a convenience for the UI,
  * never a security boundary.
  */
-import type { Tenant, TenantStatus, User, UserRole } from '@/types';
+import type { SessionUser, Tenant, TenantStatus, User, UserRole } from '@/types';
 
 export type MembershipRecord = {
   role: string;
@@ -84,15 +84,19 @@ const metadataText = (user: AuthUserLike, key: string): string => {
   return typeof value === 'string' ? value.trim() : '';
 };
 
-export function toSessionUser(user: AuthUserLike, role: UserRole): User {
+/** The person behind the session, independent of any tenant. */
+export function toSessionIdentity(user: AuthUserLike, fallbackName = 'Utilizador'): SessionUser {
   const email = user.email ?? '';
   return {
     id: user.id,
-    name: metadataText(user, 'name') || email.split('@')[0] || 'Vendedor',
+    name: metadataText(user, 'name') || email.split('@')[0] || fallbackName,
     email,
     phone: user.phone ?? '',
-    role,
   };
+}
+
+export function toSessionUser(user: AuthUserLike, role: UserRole): User {
+  return { ...toSessionIdentity(user, 'Vendedor'), role };
 }
 
 /** Display name stored at sign-up (user_metadata.name), if any. */

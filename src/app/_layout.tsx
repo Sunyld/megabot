@@ -86,8 +86,13 @@ function RootNavigator() {
           <Stack.Protected guard={status === 'suspended'}>
             <Stack.Screen name="suspended" options={{ animation: 'fade' }} />
           </Stack.Protected>
+          {/* Platform area: ACTIVE platform admins, with or without a tenant. */}
+          <Stack.Protected guard={status === 'platform'}>
+            <Stack.Screen name="platform/index" options={{ animation: 'fade' }} />
+          </Stack.Protected>
           <Stack.Protected guard={signedIn}>
             <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
+            <Stack.Screen name="orders/new" />
             <Stack.Screen name="orders/[id]" />
             <Stack.Screen name="payments/[id]" />
             <Stack.Screen name="devices/[id]" />

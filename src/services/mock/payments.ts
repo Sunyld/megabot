@@ -1,4 +1,4 @@
-import { sellerWallets } from '@/mocks';
+import { sellerWallets, TENANT_ID } from '@/mocks';
 import type { Payment, PaymentMethod } from '@/types';
 import { isSameDay } from '@/utils/format';
 
@@ -63,8 +63,9 @@ export const mockPaymentsService: PaymentsService = {
     }),
 
   listAccounts: () =>
-    request(() =>
-      (['emola', 'mpesa'] as PaymentMethod[]).map((method) => {
+    request((tenantId) =>
+      // The demo seller's wallets belong to the demo tenant only.
+      (tenantId === TENANT_ID ? (['emola', 'mpesa'] as PaymentMethod[]) : []).map((method) => {
         const wallet = sellerWallets[method];
         return {
           method,
@@ -82,7 +83,7 @@ export const mockPaymentsService: PaymentsService = {
       payment.reviewReason = reason;
       const order = db.orders.find((o) => o.id === payment.orderId);
       if (order) {
-        order.status = 'cancelled';
+        order.status = 'CANCELLED';
         order.events.push({
           id: `${order.code}-reject`,
           type: 'cancelled',

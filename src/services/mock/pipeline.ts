@@ -68,7 +68,7 @@ export function runActivationPipeline(orderId: string, { verifyOnly = false } = 
     step(2200, () => {
       setTask(activeTask, 'SUCCESS');
       activeTask.operatorResponse = 'Verificação: pacote ativo no número de destino.';
-      order.status = 'completed';
+      order.status = 'COMPLETED';
       pushEvent(order, 'activated', 'Confirmado por verificação — sem repetir o USSD');
       pushEvent(order, 'customer_notified');
       notify(order, 'Ativação confirmada', `${order.code} · verificação concluída, pacote ativo.`);
@@ -76,12 +76,12 @@ export function runActivationPipeline(orderId: string, { verifyOnly = false } = 
     return;
   }
 
-  order.status = 'paid';
+  order.status = 'READY_FOR_ACTIVATION';
   setTask(activeTask, 'QUEUED');
   const sim = pickSim();
 
   step(1400, () => {
-    order.status = 'processing';
+    order.status = 'ACTIVATING';
     setTask(activeTask, 'EXECUTING');
     if (sim) {
       activeTask.attempts.push({
@@ -111,7 +111,7 @@ export function runActivationPipeline(orderId: string, { verifyOnly = false } = 
     if (sim) sim.activationsToday += 1;
     setTask(activeTask, 'SUCCESS');
     activeTask.operatorResponse = 'Pacote ativado com sucesso.';
-    order.status = 'completed';
+    order.status = 'COMPLETED';
     order.failureReason = undefined;
     pushEvent(order, 'activated');
     pushEvent(order, 'customer_notified');

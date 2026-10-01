@@ -97,11 +97,11 @@ export function createMockPlatformAdminService({
         createdAt: now,
       });
       return tenant;
-    });
+    }, { requireTenant: false });
   }
 
   return {
-    getPlatformAdminContext: () => request(() => context),
+    getPlatformAdminContext: () => request(() => context, { requireTenant: false }),
 
     async listTenants(params) {
       const { status: wanted, search, limit, offset } = normalizeTenantListParams(params);
@@ -118,15 +118,18 @@ export function createMockPlatformAdminService({
             .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
             .slice(offset, offset + limit);
         },
-        { list: true }
+        { list: true, requireTenant: false }
       );
     },
 
     getTenant: (id) =>
-      request(() => {
-        authorize('tenants.read');
-        return findTenant(id);
-      }),
+      request(
+        () => {
+          authorize('tenants.read');
+          return findTenant(id);
+        },
+        { requireTenant: false }
+      ),
 
     suspendTenant: (id, input) => setStatus(id, 'suspended', input?.reason),
 
@@ -140,7 +143,7 @@ export function createMockPlatformAdminService({
           // Only the demo tenant has a catalog in mock mode.
           return db.products.filter((product) => product.tenantId === tenantId);
         },
-        { list: true }
+        { list: true, requireTenant: false }
       ),
 
     async getAuditLogs(query) {
@@ -161,7 +164,7 @@ export function createMockPlatformAdminService({
             .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
             .slice(0, q.limit);
         },
-        { list: true }
+        { list: true, requireTenant: false }
       );
     },
   };

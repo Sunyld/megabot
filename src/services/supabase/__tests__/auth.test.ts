@@ -1,9 +1,16 @@
-import { AuthApiError, AuthRetryableFetchError, AuthWeakPasswordError } from '@supabase/supabase-js';
+import { AuthApiError, AuthRetryableFetchError, AuthWeakPasswordError, PostgrestError } from '@supabase/supabase-js';
 
 import { AppError } from '../../errors';
 import type { AuthEvent } from '../../types';
 import { createSupabaseAuthService, mapAuthEvent } from '../auth';
-import type { AuthGateway, GatewayAuthEvent, GatewaySession, RecoveryCredentials, SignUpPayload } from '../gateway';
+import type {
+  AuthGateway,
+  GatewayAuthEvent,
+  GatewaySession,
+  PlatformAccessRecord,
+  RecoveryCredentials,
+  SignUpPayload,
+} from '../gateway';
 import type { MembershipRecord } from '../tenancy';
 
 /*
@@ -41,6 +48,7 @@ function createFakeGateway() {
     signOutLocally: jest.fn(() => Promise.resolve()),
     getSession: jest.fn(() => Promise.resolve<GatewaySession | null>(null)),
     fetchMemberships: jest.fn((userId: string) => Promise.resolve<MembershipRecord[]>([membershipRow()])),
+    fetchPlatformAccess: jest.fn(() => Promise.resolve<PlatformAccessRecord[]>([])),
     resetPasswordForEmail: jest.fn((email: string, redirectTo: string) => Promise.resolve()),
     establishRecoverySession: jest.fn((credentials: RecoveryCredentials) => Promise.resolve(gatewaySession())),
     updatePassword: jest.fn((password: string) => Promise.resolve()),
@@ -92,6 +100,7 @@ describe('registration', () => {
     });
     expect(mocks.fetchMemberships).toHaveBeenCalledWith('user-a');
     expect(session).toEqual({
+      kind: 'tenant',
       user: { id: 'user-a', name: 'Ana', email: 'ana@megabot.test', phone: '', role: 'owner' },
       tenant: {
         id: 'tenant-a',
@@ -103,6 +112,7 @@ describe('registration', () => {
         timezone: 'Africa/Maputo',
         locale: 'pt-MZ',
       },
+      platformAdmin: null,
       expiresAt: '2026-10-01T12:00:00.000Z',
     });
   });
@@ -163,8 +173,7 @@ describe('login', () => {
     mocks.fetchMemberships.mockResolvedValueOnce([membershipRow({}, 'admin')]);
     const session = await auth.signIn({ email: ' ana@megabot.test ', password: 'segredo123' });
     expect(mocks.signIn).toHaveBeenCalledWith('ana@megabot.test', 'segredo123');
-    expect(session.user.role).toBe('admin');
-    expect(session.tenant.id).toBe('tenant-a');
+    expect(session).toMatchObject({ kind: 'tenant', user: { role: 'admin' }, tenant: { id: 'tenant-a' }, platformAdmin: null });
   });
 
   it('maps invalid credentials', async () => {
@@ -194,7 +203,7 @@ describe('login', () => {
     const { auth, mocks } = setup();
     mocks.fetchMemberships.mockResolvedValueOnce([membershipRow({ status: 'suspended' })]);
     const session = await auth.signIn({ email: 'a@b.co', password: 'x' });
-    expect(session.tenant.status).toBe('suspended');
+    expect(session).toMatchObject({ kind: 'tenant', tenant: { status: 'suspended' } });
   });
 });
 
@@ -299,5 +308,79 @@ describe('password recovery', () => {
     expect((await failure(auth.updatePassword('curta'))).reason).toBe('WEAK_PASSWORD');
     mocks.updatePassword.mockRejectedValueOnce(new AuthApiError('New password should be different', 422, 'same_password'));
     expect((await failure(auth.updatePassword('nova-segura-1'))).reason).toBe('SAME_PASSWORD');
+  });
+});
+
+describe('platform admin access', () => {
+  const superAdmin: PlatformAccessRecord = {
+    role: 'SUPER_ADMIN',
+    status: 'ACTIVE',
+    permissions: ['tenants.read', 'tenants.suspend', 'audit_logs.read', 'platform_admins.read'],
+  };
+
+  it('opens the platform area for an ACTIVE admin without any tenant (no tenant is created)', async () => {
+    const { auth, mocks } = setup();
+    mocks.fetchMemberships.mockResolvedValueOnce([]);
+    mocks.fetchPlatformAccess.mockResolvedValueOnce([superAdmin]);
+    const session = await auth.signIn({ email: 'admin@megabot.test', password: 'segredo123' });
+    expect(session).toMatchObject({
+      kind: 'platform',
+      tenant: null,
+      platformAdmin: { isPlatformAdmin: true, role: 'SUPER_ADMIN', status: 'ACTIVE' },
+    });
+    expect(mocks.signOutLocally).not.toHaveBeenCalled();
+  });
+
+  it('checks platform access first: an admin who is also a tenant member opens the platform area', async () => {
+    const { auth, mocks } = setup();
+    mocks.fetchPlatformAccess.mockResolvedValueOnce([superAdmin]);
+    expect((await auth.signIn({ email: 'a@b.co', password: 'x' })).kind).toBe('platform');
+  });
+
+  it('denies a SUSPENDED platform admin without tenant, with its own message', async () => {
+    const { auth, mocks } = setup();
+    mocks.fetchMemberships.mockResolvedValueOnce([]);
+    mocks.fetchPlatformAccess.mockResolvedValueOnce([{ ...superAdmin, status: 'SUSPENDED' }]);
+    expect(await failure(auth.signIn({ email: 'a@b.co', password: 'x' }))).toMatchObject({
+      code: 'PERMISSION_DENIED',
+      reason: 'PLATFORM_ADMIN_SUSPENDED',
+    });
+    expect(mocks.signOutLocally).toHaveBeenCalled();
+  });
+
+  it('a SUSPENDED platform admin who is a tenant member keeps the tenant app', async () => {
+    const { auth, mocks } = setup();
+    mocks.fetchPlatformAccess.mockResolvedValueOnce([{ ...superAdmin, status: 'SUSPENDED' }]);
+    const session = await auth.signIn({ email: 'a@b.co', password: 'x' });
+    expect(session).toMatchObject({ kind: 'tenant', platformAdmin: null });
+  });
+
+  it('a tenant ADMIN is never a platform admin', async () => {
+    const { auth, mocks } = setup();
+    mocks.fetchMemberships.mockResolvedValueOnce([membershipRow({}, 'admin')]);
+    const session = await auth.signIn({ email: 'a@b.co', password: 'x' });
+    expect(session).toMatchObject({ kind: 'tenant', user: { role: 'admin' } });
+  });
+
+  it('keeps tenant login working when the platform RPC is not deployed', async () => {
+    const { auth, mocks } = setup();
+    mocks.fetchPlatformAccess.mockRejectedValueOnce(
+      new PostgrestError({ code: 'PGRST202', message: 'Could not find the function', details: '', hint: '' })
+    );
+    expect((await auth.signIn({ email: 'a@b.co', password: 'x' })).kind).toBe('tenant');
+  });
+
+  it('does not guess on network failures while reading platform access', async () => {
+    const { auth, mocks } = setup();
+    mocks.fetchPlatformAccess.mockRejectedValueOnce(new TypeError('Network request failed'));
+    expect((await failure(auth.signIn({ email: 'a@b.co', password: 'x' }))).code).toBe('NETWORK_ERROR');
+  });
+
+  it('restores a platform session', async () => {
+    const { auth, mocks } = setup();
+    mocks.getSession.mockResolvedValueOnce(gatewaySession('admin-1', { name: 'Equipa' }));
+    mocks.fetchMemberships.mockResolvedValueOnce([]);
+    mocks.fetchPlatformAccess.mockResolvedValueOnce([superAdmin]);
+    expect(await auth.restore()).toMatchObject({ kind: 'platform', user: { id: 'admin-1', name: 'Equipa' } });
   });
 });

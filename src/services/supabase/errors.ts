@@ -157,6 +157,15 @@ export function toAppError(error: unknown, context: AuthErrorContext = 'data'): 
   return make('UNKNOWN_ERROR', 'Ocorreu um erro inesperado. Tente novamente.', detail);
 }
 
+/**
+ * Machine-readable reason our SQL functions attach to errors (RAISE … USING
+ * HINT = 'TENANT_SUSPENDED'), with the user-facing pt message they raised.
+ */
+export function postgrestReason(error: unknown): { hint: string; message: string } | null {
+  if (!isPostgrestLike(error) || !error.hint || !/^[A-Z_]+$/.test(error.hint)) return null;
+  return { hint: error.hint, message: error.message };
+}
+
 /** Logs an auth/onboarding failure without personal data (no email, no password). */
 export function logAuthError(operation: AuthErrorContext, error: AppError): void {
   console.warn(`[MegaBot][auth] ${operation} failed: ${error.code}${error.reason ? `/${error.reason}` : ''}`, error.detail ?? '');

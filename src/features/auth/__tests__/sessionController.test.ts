@@ -1,9 +1,10 @@
 import type { AuthEvent, AuthService } from '@/services/types';
-import type { Session, SignInCredentials, SignUpInput } from '@/types';
+import type { PlatformSession, Session, SignInCredentials, SignUpInput, TenantSession } from '@/types';
 
 import { createSessionController } from '../sessionController';
 
-const appSession = (userId = 'user-a', tenant: Partial<Session['tenant']> = {}): Session => ({
+const appSession = (userId = 'user-a', tenant: Partial<TenantSession['tenant']> = {}): TenantSession => ({
+  kind: 'tenant',
   user: { id: userId, name: 'Ana', email: `${userId}@megabot.test`, phone: '', role: 'owner' },
   tenant: {
     id: `tenant-of-${userId}`,
@@ -16,6 +17,15 @@ const appSession = (userId = 'user-a', tenant: Partial<Session['tenant']> = {}):
     locale: 'pt-MZ',
     ...tenant,
   },
+  platformAdmin: null,
+  expiresAt: '2026-10-01T12:00:00.000Z',
+});
+
+const platformSession = (userId = 'admin-1', status: 'ACTIVE' | 'SUSPENDED' = 'ACTIVE'): PlatformSession => ({
+  kind: 'platform',
+  user: { id: userId, name: 'Equipa MegaBot', email: `${userId}@megabot.test`, phone: '' },
+  tenant: null,
+  platformAdmin: { isPlatformAdmin: status === 'ACTIVE', role: 'SUPER_ADMIN', status, permissions: ['tenants.read'] },
   expiresAt: '2026-10-01T12:00:00.000Z',
 });
 
@@ -34,8 +44,8 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 function setup() {
   let emitEvent: (event: AuthEvent) => void = () => {};
   const mocks = {
-    signIn: jest.fn((credentials: SignInCredentials) => Promise.resolve(appSession())),
-    signUp: jest.fn((input: SignUpInput) => Promise.resolve(appSession())),
+    signIn: jest.fn((credentials: SignInCredentials) => Promise.resolve<Session>(appSession())),
+    signUp: jest.fn((input: SignUpInput) => Promise.resolve<Session>(appSession())),
     signOut: jest.fn(() => Promise.resolve()),
     restore: jest.fn(() => Promise.resolve<Session | null>(null)),
     onAuthEvent: jest.fn((listener: (event: AuthEvent) => void) => {
@@ -85,6 +95,44 @@ describe('restore on launch', () => {
     await flush();
     expect(controller.getState().status).toBe('suspended');
     expect(effects.setTenantScope).toHaveBeenLastCalledWith(null);
+  });
+});
+
+describe('platform admin context', () => {
+  it('opens the platform area without a tenant and without tenant data scope', async () => {
+    const { controller, mocks, effects } = setup();
+    mocks.signIn.mockResolvedValueOnce(platformSession());
+    await controller.signIn(credentials);
+    expect(controller.getState()).toMatchObject({ status: 'platform', session: { kind: 'platform', tenant: null } });
+    expect(effects.setTenantScope).toHaveBeenLastCalledWith(null);
+  });
+
+  it('restores a platform session on launch', async () => {
+    const { controller, mocks } = setup();
+    mocks.restore.mockResolvedValueOnce(platformSession());
+    controller.start();
+    await flush();
+    expect(controller.getState().status).toBe('platform');
+  });
+
+  it('clears cached data when switching between platform and tenant contexts', async () => {
+    const { controller, mocks, effects } = setup();
+    mocks.signIn.mockResolvedValueOnce(platformSession('user-a'));
+    await controller.signIn(credentials);
+    effects.clearUserData.mockClear();
+    await controller.signIn(credentials); // same user, now a tenant context
+    expect(controller.getState().status).toBe('signedIn');
+    expect(effects.clearUserData).toHaveBeenCalled();
+  });
+
+  it('updates the platform user on USER_UPDATED', async () => {
+    const { controller, mocks, emit } = setup();
+    controller.start();
+    await flush();
+    mocks.signIn.mockResolvedValueOnce(platformSession());
+    await controller.signIn(credentials);
+    emit({ type: 'USER_UPDATED', email: 'novo@megabot.test', name: 'Novo Nome' });
+    expect(controller.getState().session).toMatchObject({ kind: 'platform', user: { email: 'novo@megabot.test', name: 'Novo Nome' } });
   });
 });
 

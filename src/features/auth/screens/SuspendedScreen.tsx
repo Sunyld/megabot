@@ -30,7 +30,7 @@ export function SuspendedScreen() {
   return (
     <AuthScaffold
       title="Empresa suspensa"
-      description={`O acesso a ${session?.tenant.name ?? 'esta empresa'} está temporariamente suspenso. Contacte o suporte do MegaBot para reativar a conta.`}
+      description={`O acesso a ${session?.tenant?.name ?? 'esta empresa'} está temporariamente suspenso. Contacte o suporte do MegaBot para reativar a conta.`}
       footer={<Button label="Terminar sessão" variant="ghost" fullWidth disabled={checking} onPress={() => void signOut()} />}>
       <Button label="Verificar novamente" icon="refresh" size="lg" fullWidth loading={checking} onPress={() => void checkAgain()} />
     </AuthScaffold>

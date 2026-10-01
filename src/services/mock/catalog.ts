@@ -6,7 +6,7 @@ import { assertValidProductInput } from '../productRules';
 import type { DevicesService, ProductsService, SimsService } from '../types';
 import { db, notFound, ownedBy, request } from './db';
 
-const SOLD: OrderStatus[] = ['paid', 'processing', 'verifying', 'completed', 'failed'];
+const SOLD: OrderStatus[] = ['PAID', 'READY_FOR_ACTIVATION', 'ACTIVATING', 'COMPLETED', 'FAILED'];
 
 /*
  * Mock products follow the database rules of migration 003: validated input,

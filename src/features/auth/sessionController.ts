@@ -4,17 +4,18 @@ import type { Session, SignInCredentials, SignUpInput } from '@/types';
 /**
  * App session state machine (no React, testable).
  *
- *  restoring ─▶ signedOut ◀──────────────┐
- *      │            │ signIn / signUp     │ signOut / SIGNED_OUT
- *      ▼            ▼                     │
- *   signedIn ◀── context loaded ─▶ suspended (tenant.status = suspended)
- *      ▲
+ *  restoring ─▶ signedOut ◀──────────────────────────┐
+ *      │            │ signIn / signUp                 │ signOut / SIGNED_OUT
+ *      ▼            ▼                                 │
+ *   context loaded ─┬─▶ platform   (ACTIVE platform admin, tenant optional)
+ *                   ├─▶ signedIn   (tenant app)
+ *                   └─▶ suspended  (tenant.status = suspended)
  *  recovering (password-recovery link) ── new password ──┘
  *
  * Race safety: every operation takes a new "epoch"; results from an older
  * epoch are dropped, so a slow sign-in can never overwrite a later sign-out.
  */
-export type SessionStatus = 'restoring' | 'signedOut' | 'signedIn' | 'suspended' | 'recovering';
+export type SessionStatus = 'restoring' | 'signedOut' | 'signedIn' | 'suspended' | 'platform' | 'recovering';
 
 export type SessionState = {
   status: SessionStatus;
@@ -45,8 +46,19 @@ export function createSessionController(auth: AuthService, effects: SessionEffec
   };
 
   const enter = (session: Session) => {
-    const sameUser = state.session?.user.id === session.user.id && state.session.tenant.id === session.tenant.id;
-    if (!sameUser) effects.clearUserData();
+    const previous = state.session;
+    const sameContext =
+      previous?.user.id === session.user.id &&
+      previous.kind === session.kind &&
+      previous.tenant?.id === session.tenant?.id;
+    if (!sameContext) effects.clearUserData();
+
+    if (session.kind === 'platform') {
+      // Platform admins never operate inside a tenant's data scope.
+      effects.setTenantScope(null);
+      set({ status: 'platform', session });
+      return;
+    }
     const suspended = session.tenant.status === 'suspended';
     effects.setTenantScope(suspended ? null : session.tenant.id);
     set({ status: suspended ? 'suspended' : 'signedIn', session });
@@ -111,21 +123,20 @@ export function createSessionController(auth: AuthService, effects: SessionEffec
         if (state.session) set({ ...state, session: { ...state.session, expiresAt: event.expiresAt } });
         return;
 
-      case 'USER_UPDATED':
-        if (state.session) {
-          set({
-            ...state,
-            session: {
-              ...state.session,
-              user: {
-                ...state.session.user,
-                email: event.email ?? state.session.user.email,
-                name: event.name ?? state.session.user.name,
-              },
-            },
-          });
-        }
+      case 'USER_UPDATED': {
+        const session = state.session;
+        if (!session) return;
+        const email = event.email ?? session.user.email;
+        const name = event.name ?? session.user.name;
+        set({
+          ...state,
+          session:
+            session.kind === 'platform'
+              ? { ...session, user: { ...session.user, email, name } }
+              : { ...session, user: { ...session.user, email, name } },
+        });
         return;
+      }
 
       case 'PASSWORD_RECOVERY':
         recovering = true;

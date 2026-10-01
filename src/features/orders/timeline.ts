@@ -17,28 +17,36 @@ const steps: Step[] = [
 
 const lastOf = (events: OrderEvent[], type: OrderEventType) => events.filter((e) => e.type === type).at(-1);
 
+/** Activation sent but the operator did not confirm (task UNKNOWN): verifying before any retry. */
+export const isVerifyingActivation = (order: Order) =>
+  order.status === 'ACTIVATING' && order.events.some((e) => e.type === 'verification_started');
+
 /** What is happening at the first step that hasn't completed yet. */
 function currentStepState(order: Order): { state: TimelineState; description?: string } {
   switch (order.status) {
-    case 'awaiting_destination':
-      return { state: 'current', description: 'A aguardar o número de destino do cliente' };
-    case 'awaiting_payment':
-      return { state: 'current', description: 'A aguardar a mensagem de confirmação da carteira' };
-    case 'payment_review':
+    case 'PENDING':
+      return {
+        state: 'current',
+        description: order.destination ? 'A aguardar o envio dos dados de pagamento' : 'A aguardar o número de destino do cliente',
+      };
+    case 'AWAITING_PAYMENT':
+      return {
+        state: 'current',
+        description: order.paymentId ? 'A aguardar a mensagem de confirmação da carteira' : 'A aguardar o pagamento do cliente',
+      };
+    case 'VERIFYING':
       return {
         state: 'warning',
-        description: lastOf(order.events, 'payment_review')?.description ?? 'Pagamento em revisão',
+        description: lastOf(order.events, 'payment_review')?.description ?? 'Pagamento em verificação',
       };
-    case 'paid':
+    case 'PAID':
+    case 'READY_FOR_ACTIVATION':
       return { state: 'current', description: 'Na fila para um dispositivo livre' };
-    case 'processing':
-      return { state: 'current', description: 'Em curso no dispositivo' };
-    case 'verifying':
-      return {
-        state: 'warning',
-        description: 'Sem confirmação da operadora (UNKNOWN). A verificar antes de repetir.',
-      };
-    case 'failed':
+    case 'ACTIVATING':
+      return isVerifyingActivation(order)
+        ? { state: 'warning', description: 'Sem confirmação da operadora (UNKNOWN). A verificar antes de repetir.' }
+        : { state: 'current', description: 'Em curso no dispositivo' };
+    case 'FAILED':
       return { state: 'failed', description: lastOf(order.events, 'failed')?.description ?? order.failureReason };
     default:
       return { state: 'pending' };
@@ -70,7 +78,7 @@ export function buildOrderTimeline(order: Order): TimelineItem[] {
 
     if (event && !reachedOpenStep) {
       let description = event.description;
-      if (step.type === 'created') description = `${order.productName} · ${order.channel.name}`;
+      if (step.type === 'created') description = `${order.productName} · ${order.channel?.name ?? 'Registado na app'}`;
       if (step.type === 'activated' && order.events.some((e) => e.type === 'customer_notified')) {
         description = [event.description, 'Cliente notificado no WhatsApp'].filter(Boolean).join(' · ');
       }
@@ -78,14 +86,15 @@ export function buildOrderTimeline(order: Order): TimelineItem[] {
       continue;
     }
 
-    if (order.status === 'cancelled') {
+    if (order.status === 'CANCELLED' || order.status === 'EXPIRED') {
       if (!reachedOpenStep) {
-        const cancelled = lastOf(order.events, 'cancelled');
+        const expired = order.status === 'EXPIRED';
+        const closing = lastOf(order.events, expired ? 'expired' : 'cancelled');
         items.push({
-          key: 'cancelled',
-          title: 'Pedido cancelado',
-          description: cancelled?.description,
-          time: cancelled ? formatTime(cancelled.at, true) : undefined,
+          key: expired ? 'expired' : 'cancelled',
+          title: expired ? 'Pedido expirado' : 'Pedido cancelado',
+          description: closing?.description ?? order.cancelReason ?? undefined,
+          time: closing ? formatTime(closing.at, true) : undefined,
           state: 'failed',
         });
       }

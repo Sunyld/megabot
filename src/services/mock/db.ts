@@ -43,12 +43,25 @@ const LATENCY = { instant: [0, 0], realistic: [280, 650], slow: [1600, 2600] } a
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
+ * Mock mode serves the demo dataset (it belongs to the demo tenant). In
+ * Supabase mode the domains that are not on the backend yet reuse these
+ * services scoped to the REAL signed-in tenant, which owns no fixture rows —
+ * so they show empty states and demo data never mixes with real data.
+ */
+let serveDemoData = true;
+
+export function stopServingDemoData() {
+  serveDemoData = false;
+}
+
+/**
  * Every mock call goes through here: resolves the tenant (like RLS would),
  * waits a realistic amount of time and applies the simulation switches.
+ * `requireTenant: false` is for platform (cross-tenant) calls.
  */
 export async function request<T>(
   handler: (tenantId: string) => T,
-  { list = false, empty }: { list?: boolean; empty?: () => T } = {}
+  { list = false, empty, requireTenant = true }: { list?: boolean; empty?: () => T; requireTenant?: boolean } = {}
 ): Promise<T> {
   const { latency, failRequests, offline, emptyData } = simulationStore.get();
   const [min, max] = LATENCY[latency];
@@ -58,12 +71,10 @@ export async function request<T>(
   if (failRequests) throw new AppError('DATABASE_ERROR', 'Não foi possível carregar os dados. Tente novamente.');
 
   const tenantId = serviceContext.getTenant();
-  if (!tenantId) throw new AppError('AUTH_ERROR', 'Sessão expirada. Entre novamente.');
+  if (requireTenant && !tenantId) throw new AppError('AUTH_ERROR', 'Sessão expirada. Entre novamente.');
 
-  // The demo dataset belongs to the demo tenant. In Supabase mode (progressive)
-  // domains not migrated yet still read it for the signed-in real tenant.
   if (emptyData && empty) return empty();
-  const result = handler(TENANT_ID);
+  const result = handler(serveDemoData ? TENANT_ID : (tenantId ?? ''));
   if (list && emptyData && Array.isArray(result)) return [] as T;
   // Void handlers (markRead, archive…): JSON.parse(undefined) would throw.
   return result === undefined ? result : clone(result);

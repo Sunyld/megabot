@@ -6,10 +6,12 @@
  */
 import type { AuthChangeEvent, AuthSession } from '@supabase/supabase-js';
 
-import type { MegabotSupabaseClient } from '@/lib/supabase';
+import type { Database, MegabotSupabaseClient } from '@/lib/supabase';
 import type { SignUpInput } from '@/types';
 
 import type { AuthUserLike, MembershipRecord } from './tenancy';
+
+export type PlatformAccessRecord = Database['public']['Functions']['platform_admin_context']['Returns'][number];
 
 export type GatewaySession = {
   user: AuthUserLike & { id: string };
@@ -40,6 +42,8 @@ export interface AuthGateway {
   getSession(): Promise<GatewaySession | null>;
   /** Memberships of the user as allowed by RLS, with tenant + settings embedded. */
   fetchMemberships(userId: string): Promise<MembershipRecord[]>;
+  /** The caller's platform_admins row (0 or 1), from platform_admin_context() (migration 002). */
+  fetchPlatformAccess(): Promise<PlatformAccessRecord[]>;
   resetPasswordForEmail(email: string, redirectTo: string): Promise<void>;
   establishRecoverySession(credentials: RecoveryCredentials): Promise<GatewaySession>;
   updatePassword(newPassword: string): Promise<void>;
@@ -172,6 +176,12 @@ export function createSupabaseGateway(getClient: () => MegabotSupabaseClient): A
           settings: row.tenant.settings,
         },
       }));
+    },
+
+    async fetchPlatformAccess() {
+      const { data, error } = await getClient().rpc('platform_admin_context');
+      if (error) throw error;
+      return data ?? [];
     },
 
     async resetPasswordForEmail(email, redirectTo) {

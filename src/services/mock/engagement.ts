@@ -1,5 +1,8 @@
+import { TENANT_ID } from '@/mocks';
+import type { AutomationSettings } from '@/types';
 import { isSameDay } from '@/utils/format';
 
+import { AppError } from '../errors';
 import type { AutomationService, NotificationsService, WhatsAppService } from '../types';
 import { db, notFound, ownedBy, request } from './db';
 
@@ -55,11 +58,24 @@ export const mockWhatsAppService: WhatsAppService = {
     }),
 };
 
+/** What a real tenant sees until automation exists on the backend: everything off. */
+const AUTOMATION_OFF: AutomationSettings = {
+  enabled: false,
+  autoOrders: false,
+  autoConfirm: false,
+  autoUssd: false,
+  failover: false,
+  smsMonitoring: false,
+};
+
 export const mockAutomationService: AutomationService = {
-  getSettings: () => request(() => db.automation),
+  getSettings: () => request((tenantId) => (tenantId === TENANT_ID ? db.automation : AUTOMATION_OFF)),
 
   updateSettings: (patch) =>
-    request(() => {
+    request((tenantId) => {
+      if (tenantId !== TENANT_ID) {
+        throw new AppError('CONFLICT', 'A automação fica disponível numa próxima fase.', { reason: 'FEATURE_NOT_AVAILABLE' });
+      }
       Object.assign(db.automation, patch);
       return db.automation;
     }),

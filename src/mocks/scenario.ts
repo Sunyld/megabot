@@ -215,6 +215,9 @@ function addOrder(draft: Draft, status: OrderStatus, orderEvents: OrderEvent[], 
     productId: p.id,
     productName: p.name,
     price: p.price,
+    currency: p.currency,
+    dataAmount: p.dataAmount,
+    dataUnit: p.dataUnit,
     destination: draft.destination,
     customer: { name: draft.customer, whatsapp: draft.phone },
     channel: { type: 'group', name: draft.group },
@@ -247,7 +250,7 @@ function completedSale(draft: Draft, worker: Worker, activationSeconds: number) 
 
   return addOrder(
     draft,
-    'completed',
+    'COMPLETED',
     events(draft.code, [
       ['created', t0],
       ['destination_provided', addSeconds(t0, 40)],
@@ -273,7 +276,7 @@ const minutesAgo = (minutes: number) => ago({ minutes });
     code: 'ORD-92838', productId: 'prd_1024', customer: 'Célia Sitoe', phone: '+258845123987',
     destination: null, group: groupNames[0], createdAt: minutesAgo(2), method: 'emola', txSuffix: 'k20411',
   };
-  addOrder(draft, 'awaiting_destination', events(draft.code, [['created', draft.createdAt]]));
+  addOrder(draft, 'PENDING', events(draft.code, [['created', draft.createdAt]]));
 }
 
 // Awaiting payment — proof received, wallet SMS not arrived yet (payment pending).
@@ -298,7 +301,7 @@ const minutesAgo = (minutes: number) => ago({ minutes });
   });
   addOrder(
     draft,
-    'awaiting_payment',
+    'AWAITING_PAYMENT',
     events(draft.code, [
       ['created', draft.createdAt],
       ['destination_provided', addSeconds(draft.createdAt, 50)],
@@ -321,7 +324,7 @@ const minutesAgo = (minutes: number) => ago({ minutes });
   const task = addTask(draft, orderId, confirmedAt, 'QUEUED', []);
   addOrder(
     draft,
-    'paid',
+    'READY_FOR_ACTIVATION',
     events(draft.code, [
       ['created', draft.createdAt],
       ['destination_provided', addSeconds(draft.createdAt, 30)],
@@ -348,7 +351,7 @@ const minutesAgo = (minutes: number) => ago({ minutes });
   ]);
   addOrder(
     draft,
-    'processing',
+    'ACTIVATING',
     events(draft.code, [
       ['created', draft.createdAt],
       ['destination_provided', addSeconds(draft.createdAt, 25)],
@@ -395,7 +398,7 @@ completedSale(
   });
   addOrder(
     draft,
-    'payment_review',
+    'VERIFYING',
     events(draft.code, [
       ['created', draft.createdAt],
       ['destination_provided', addSeconds(draft.createdAt, 35)],
@@ -425,7 +428,7 @@ completedSale(
   ]);
   addOrder(
     draft,
-    'verifying',
+    'ACTIVATING',
     events(draft.code, [
       ['created', draft.createdAt],
       ['destination_provided', addSeconds(draft.createdAt, 45)],
@@ -461,7 +464,7 @@ completedSale(
   ], 'Pacote ativado com sucesso.');
   addOrder(
     draft,
-    'completed',
+    'COMPLETED',
     events(draft.code, [
       ['created', draft.createdAt],
       ['destination_provided', addSeconds(draft.createdAt, 38)],
@@ -497,7 +500,7 @@ completedSale(
   ], 'Numero invalido. Verifique e tente novamente.');
   addOrder(
     draft,
-    'failed',
+    'FAILED',
     events(draft.code, [
       ['created', draft.createdAt],
       ['destination_provided', addSeconds(draft.createdAt, 30)],
@@ -568,7 +571,7 @@ generate(9, 92807, yesterdayEnd - 11 * 60 * 60_000, yesterdayEnd, workers.filter
   };
   addOrder(
     draft,
-    'cancelled',
+    'CANCELLED',
     events(draft.code, [
       ['created', draft.createdAt],
       ['destination_provided', addSeconds(draft.createdAt, 60)],

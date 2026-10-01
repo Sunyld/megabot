@@ -11,6 +11,7 @@ import type {
   AuditLogQuery,
   AutomationSettings,
   AutomationStats,
+  CreateOrderInput,
   Conversation,
   DashboardSummary,
   Device,
@@ -69,8 +70,11 @@ export interface AuthService {
   /** Sets a new password for the signed-in (or recovering) user. */
   updatePassword(newPassword: string): Promise<void>;
   /** Demo credentials for the prototype; `null` in production backends. */
-  getDemoCredentials(): SignInCredentials | null;
+  getDemoCredentials(): DemoCredentials | null;
 }
+
+/** Mock mode only: a tenant owner and a platform admin to explore both areas. */
+export type DemoCredentials = { tenant: SignInCredentials; platform: SignInCredentials };
 
 export interface DashboardService {
   getSummary(): Promise<DashboardSummary>;
@@ -79,15 +83,28 @@ export interface DashboardService {
 
 export type OrderListParams = { filter?: OrderFilter; search?: string };
 
+/**
+ * Orders of the signed-in tenant (migration 004). Status changes are explicit
+ * commands — there is no generic update — and the backend validates every
+ * transition. Any member (owner / admin / operator) of an active tenant can
+ * run them.
+ */
 export interface OrdersService {
   list(params?: OrderListParams): Promise<Order[]>;
   counts(): Promise<OrderCounts>;
+  /** The order with its history (events). */
   get(id: ID): Promise<Order>;
-  /** Re-runs a failed activation, optionally correcting the destination number. */
+  /** Registers a PENDING order for an active product; snapshot taken by the backend. Idempotent by key. */
+  create(input: CreateOrderInput): Promise<Order>;
+  /** PENDING → AWAITING_PAYMENT (payment instructions sent to the customer). */
+  markAwaitingPayment(id: ID): Promise<Order>;
+  /** Cancels where the state machine allows it; already cancelled = no-op. */
+  cancel(id: ID, input?: { reason?: string }): Promise<Order>;
+  /** Activation phase: re-runs a failed activation, optionally correcting the destination number. */
   retryActivation(id: ID, input?: { destination?: string }): Promise<Order>;
-  /** For UNKNOWN results: checks with the operator before any retry (never duplicates). */
+  /** Activation phase: for UNKNOWN results, checks with the operator before any retry (never duplicates). */
   verifyActivation(id: ID): Promise<Order>;
-  cancel(id: ID): Promise<Order>;
+  /** WhatsApp phase: resends the delivery confirmation to the customer. */
   resendConfirmation(id: ID): Promise<void>;
 }
 

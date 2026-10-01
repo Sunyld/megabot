@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from '@/lib/query';
 import { api, type OrderListParams } from '@/services';
-import type { ID } from '@/types';
+import type { CreateOrderInput, ID } from '@/types';
 
 import { queryKeys } from './queryKeys';
 
@@ -29,8 +29,19 @@ export function useVerifyActivation() {
   return useMutation((id: ID) => api.orders.verifyActivation(id), { invalidate: affected });
 }
 
+/** Registers an order. Keep the same `idempotencyKey` when retrying the same request. */
+export function useCreateOrder() {
+  return useMutation((input: CreateOrderInput) => api.orders.create(input), { invalidate: affected });
+}
+
+export function useMarkOrderAwaitingPayment() {
+  return useMutation((id: ID) => api.orders.markAwaitingPayment(id), { invalidate: affected });
+}
+
 export function useCancelOrder() {
-  return useMutation((id: ID) => api.orders.cancel(id), { invalidate: affected });
+  return useMutation(({ id, reason }: { id: ID; reason?: string }) => api.orders.cancel(id, { reason }), {
+    invalidate: affected,
+  });
 }
 
 export function useResendConfirmation() {

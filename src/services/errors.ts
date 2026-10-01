@@ -28,6 +28,7 @@ export type AppErrorReason =
   // Sign-in / session
   | 'INVALID_CREDENTIALS'
   | 'TENANT_NOT_FOUND'
+  | 'PLATFORM_ADMIN_SUSPENDED'
   | 'SESSION_EXPIRED'
   | 'EMAIL_CONFIRMATION_REQUIRED'
   // Password recovery
@@ -42,6 +43,14 @@ export type AppErrorReason =
   | 'PRODUCT_NAME_TAKEN'
   | 'PRODUCT_ARCHIVED'
   | 'PRODUCT_WRITE_DENIED'
+  // Orders
+  | 'INVALID_PHONE'
+  | 'PRODUCT_NOT_AVAILABLE'
+  | 'TENANT_SUSPENDED'
+  | 'INVALID_TRANSITION'
+  | 'IDEMPOTENCY_KEY_REUSED'
+  // Shared by domains still to come (payments, activation)
+  | 'FEATURE_NOT_AVAILABLE'
   // Shared
   | 'AUTH_RATE_LIMIT'
   | 'AUTH_UNKNOWN_ERROR';

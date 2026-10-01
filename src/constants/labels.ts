@@ -6,17 +6,21 @@ import type {
   MessageIntent,
   NotificationKind,
   Operator,
+  OrderEventType,
   OrderFilter,
   OrderStatus,
   PaymentFilter,
   PaymentMethod,
   PaymentStatus,
+  PlatformAdminRole,
+  PlatformPermission,
   ProductCategory,
   ReconciliationCheckKey,
   Severity,
   SimStatus,
   TaskStatus,
   TenantPlan,
+  TenantStatus,
   UserRole,
 } from '@/types';
 import type { IconName, Tone } from '@/theme';
@@ -26,16 +30,55 @@ import type { IconName, Tone } from '@/theme';
  * Status is always communicated with icon + label, never color alone.
  */
 
+/** Mirrors orders.status (migration 004). */
 export const orderStatusMeta: Record<OrderStatus, StatusMeta> = {
-  awaiting_destination: { label: 'Aguarda número', tone: 'neutral', icon: 'phone' },
-  awaiting_payment: { label: 'Aguarda pagamento', tone: 'warning', icon: 'pending' },
-  payment_review: { label: 'Em revisão', tone: 'warning', icon: 'warning' },
-  paid: { label: 'Pago', tone: 'info', icon: 'wallet' },
-  processing: { label: 'A processar', tone: 'info', icon: 'sync' },
-  verifying: { label: 'A verificar', tone: 'ai', icon: 'history' },
-  completed: { label: 'Concluído', tone: 'success', icon: 'checkCircle' },
-  failed: { label: 'Falhou', tone: 'danger', icon: 'error' },
-  cancelled: { label: 'Cancelado', tone: 'neutral', icon: 'cancel' },
+  PENDING: { label: 'Pendente', tone: 'neutral', icon: 'pending' },
+  AWAITING_PAYMENT: { label: 'Aguarda pagamento', tone: 'warning', icon: 'wallet' },
+  VERIFYING: { label: 'Pagamento em verificação', tone: 'warning', icon: 'warning' },
+  PAID: { label: 'Pago', tone: 'info', icon: 'wallet' },
+  READY_FOR_ACTIVATION: { label: 'Na fila de ativação', tone: 'info', icon: 'queue' },
+  ACTIVATING: { label: 'A ativar', tone: 'info', icon: 'sync' },
+  COMPLETED: { label: 'Concluído', tone: 'success', icon: 'checkCircle' },
+  FAILED: { label: 'Falhou', tone: 'danger', icon: 'error' },
+  CANCELLED: { label: 'Cancelado', tone: 'neutral', icon: 'cancel' },
+  EXPIRED: { label: 'Expirado', tone: 'neutral', icon: 'clock' },
+};
+
+/** Titles for the order history (order_events and the demo journey events). */
+export const orderEventLabels: Record<OrderEventType, string> = {
+  created: 'Pedido criado',
+  status_changed: 'Estado alterado',
+  destination_provided: 'Número de destino indicado',
+  payment_proof_received: 'Comprovativo recebido',
+  payment_confirmed: 'Pagamento confirmado',
+  payment_review: 'Pagamento em revisão',
+  task_created: 'Tarefa de ativação criada',
+  device_selected: 'Dispositivo selecionado',
+  failover: 'Failover automático',
+  ussd_executed: 'USSD executado',
+  verification_started: 'Verificação iniciada',
+  activated: 'Pacote ativado',
+  customer_notified: 'Cliente notificado',
+  failed: 'Ativação falhou',
+  cancelled: 'Pedido cancelado',
+  expired: 'Pedido expirado',
+};
+
+export const tenantStatusMeta: Record<TenantStatus, StatusMeta> = {
+  active: { label: 'Ativa', tone: 'success', icon: 'checkCircle' },
+  suspended: { label: 'Suspensa', tone: 'danger', icon: 'pause' },
+};
+
+export const platformRoleLabels: Record<PlatformAdminRole, string> = {
+  SUPER_ADMIN: 'Super administrador',
+  SUPPORT_ADMIN: 'Suporte',
+};
+
+export const platformPermissionLabels: Record<PlatformPermission, string> = {
+  'tenants.read': 'Ver empresas',
+  'tenants.suspend': 'Suspender / reativar empresas',
+  'audit_logs.read': 'Ver auditoria',
+  'platform_admins.read': 'Ver administradores',
 };
 
 export const orderFilterOptions: { value: OrderFilter; label: string }[] = [

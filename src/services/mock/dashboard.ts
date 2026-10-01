@@ -4,8 +4,8 @@ import { formatMoney, formatRelativeLong, isSameDay } from '@/utils/format';
 import type { DashboardService } from '../types';
 import { db, ownedBy, request } from './db';
 
-const SOLD: OrderStatus[] = ['paid', 'processing', 'verifying', 'completed', 'failed'];
-const PENDING: OrderStatus[] = ['awaiting_destination', 'awaiting_payment', 'payment_review'];
+const SOLD: OrderStatus[] = ['PAID', 'READY_FOR_ACTIVATION', 'ACTIVATING', 'COMPLETED', 'FAILED'];
+const PENDING: OrderStatus[] = ['PENDING', 'AWAITING_PAYMENT', 'VERIFYING'];
 
 const revenueOf = (orders: Order[]) => orders.reduce((sum, o) => sum + o.price, 0);
 
@@ -27,7 +27,7 @@ function buildAttention(tenantId: string): AttentionItem[] {
 
   db.orders
     .filter(ownedBy(tenantId))
-    .filter((o) => o.status === 'failed')
+    .filter((o) => o.status === 'FAILED')
     .forEach((o) =>
       items.push({
         id: `att_${o.id}`,
@@ -63,7 +63,7 @@ export const mockDashboardService: DashboardService = {
       const yesterday = orders.filter((o) => isSameDay(o.createdAt, now - 86_400_000));
 
       const sold = today.filter((o) => SOLD.includes(o.status));
-      const completed = today.filter((o) => o.status === 'completed');
+      const completed = today.filter((o) => o.status === 'COMPLETED');
       const revenue = revenueOf(sold);
       const yesterdayRevenue = revenueOf(yesterday.filter((o) => SOLD.includes(o.status)));
 
@@ -90,7 +90,7 @@ export const mockDashboardService: DashboardService = {
         revenueDelta: yesterdayRevenue ? (revenue - yesterdayRevenue) / yesterdayRevenue : 0,
         activated: completed.length,
         pending: today.filter((o) => PENDING.includes(o.status)).length,
-        failed: today.filter((o) => o.status === 'failed').length,
+        failed: today.filter((o) => o.status === 'FAILED').length,
         avgActivationSeconds: durations.length
           ? durations.reduce((sum, d) => sum + d, 0) / durations.length
           : 0,
@@ -104,8 +104,9 @@ export const mockDashboardService: DashboardService = {
         systems: {
           devicesOnline: devices.filter((d) => d.status === 'online').length,
           devicesTotal: devices.length,
-          whatsapp: db.whatsapp.status,
-          paymentsMonitoring: db.automation.enabled && db.automation.smsMonitoring,
+          // Demo connection/settings belong to the demo tenant only.
+          whatsapp: db.whatsapp.tenantId === tenantId ? db.whatsapp.status : 'disconnected',
+          paymentsMonitoring: db.whatsapp.tenantId === tenantId && db.automation.enabled && db.automation.smsMonitoring,
         },
         attention: buildAttention(tenantId),
       };
@@ -123,7 +124,7 @@ export const mockDashboardService: DashboardService = {
           } else if (event.type === 'payment_confirmed') {
             items.push({ ...base, id: `${event.id}`, kind: 'payment', severity: 'info', title: `Pagamento confirmado · ${formatMoney(order.price)}`, description: `${order.code} · ${order.transactionId ?? ''}` });
           } else if (event.type === 'created') {
-            items.push({ ...base, id: `${event.id}`, kind: 'order', severity: 'info', title: 'Novo pedido', description: `${order.code} · ${order.productName} · ${order.channel.name}` });
+            items.push({ ...base, id: `${event.id}`, kind: 'order', severity: 'info', title: 'Novo pedido', description: `${order.code} · ${order.productName} · ${order.channel?.name ?? 'App'}` });
           } else if (event.type === 'failed') {
             items.push({ ...base, id: `${event.id}`, kind: 'activation', severity: 'danger', title: 'Ativação falhou', description: `${order.code} · ${event.description ?? ''}` });
           } else if (event.type === 'payment_review') {

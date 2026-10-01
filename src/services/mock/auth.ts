@@ -1,4 +1,4 @@
-import { createMockSession, DEMO_CREDENTIALS } from '@/mocks';
+import { createMockPlatformSession, createMockSession, DEMO_CREDENTIALS, DEMO_PLATFORM_CREDENTIALS } from '@/mocks';
 
 import { assertValidNewPassword, assertValidSignUp, isValidEmail } from '../authValidation';
 import { AppError } from '../errors';
@@ -17,12 +17,14 @@ export const mockAuthService: AuthService = {
   async signIn({ email, password }) {
     await sleep(900);
     assertOnline();
-    const valid =
-      email.trim().toLowerCase() === DEMO_CREDENTIALS.email && password === DEMO_CREDENTIALS.password;
-    if (!valid) {
-      throw new AppError('AUTH_ERROR', 'Email ou palavra-passe incorretos.', { reason: 'INVALID_CREDENTIALS' });
+    const normalized = email.trim().toLowerCase();
+    if (normalized === DEMO_CREDENTIALS.email && password === DEMO_CREDENTIALS.password) {
+      return createMockSession();
     }
-    return createMockSession();
+    if (normalized === DEMO_PLATFORM_CREDENTIALS.email && password === DEMO_PLATFORM_CREDENTIALS.password) {
+      return createMockPlatformSession();
+    }
+    throw new AppError('AUTH_ERROR', 'Email ou palavra-passe incorretos.', { reason: 'INVALID_CREDENTIALS' });
   },
 
   async signUp(input) {
@@ -73,6 +75,6 @@ export const mockAuthService: AuthService = {
   },
 
   getDemoCredentials() {
-    return DEMO_CREDENTIALS;
+    return { tenant: DEMO_CREDENTIALS, platform: DEMO_PLATFORM_CREDENTIALS };
   },
 };
