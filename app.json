@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "MegaBot",
+    "slug": "megabot",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "megabot",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#F4F5F7",
+    "ios": {
+      "bundleIdentifier": "app.megabot.mobile",
+      "supportsTablet": false
+    },
+    "android": {
+      "package": "app.megabot.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#E60000",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "output": "single",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#E60000",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 96
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}

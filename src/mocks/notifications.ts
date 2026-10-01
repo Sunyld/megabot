@@ -1,0 +1,118 @@
+import type { AppNotification } from '@/types';
+
+import { ago, TENANT_ID } from './helpers';
+
+type Seed = Omit<AppNotification, 'tenantId' | 'read'> & { read?: boolean };
+
+const seeds: Seed[] = [
+  {
+    id: 'ntf_01',
+    kind: 'payment',
+    severity: 'warning',
+    title: 'Pagamento requer revisão',
+    body: 'ORD-92835 · Recebido 25 MT para um pacote de 30 MT.',
+    createdAt: ago({ minutes: 7 }),
+    target: { type: 'payment', id: 'pay_92835' },
+  },
+  {
+    id: 'ntf_02',
+    kind: 'activation',
+    severity: 'info',
+    title: 'A verificar ativação',
+    body: 'ORD-92834 · USSD enviado sem confirmação. O MegaBot está a verificar antes de repetir.',
+    createdAt: ago({ minutes: 9 }),
+    target: { type: 'order', id: 'ord_92834' },
+  },
+  {
+    id: 'ntf_03',
+    kind: 'payment',
+    severity: 'danger',
+    title: 'Comprovativo duplicado rejeitado',
+    body: 'O ID PP…i58382 já foi usado no pedido ORD-92831.',
+    createdAt: ago({ minutes: 9 }),
+    target: { type: 'payment', id: 'pay_dup_01' },
+  },
+  {
+    id: 'ntf_04',
+    kind: 'device',
+    severity: 'warning',
+    title: 'Worker 03 offline',
+    body: 'Sem ligação há 12 minutos. As tarefas estão a ser redirecionadas.',
+    createdAt: ago({ minutes: 12 }),
+    target: { type: 'device', id: 'dev_03' },
+  },
+  {
+    id: 'ntf_05',
+    kind: 'activation',
+    severity: 'success',
+    title: 'Pacote ativado',
+    body: 'ORD-92831 · 1250 MB para 84 074 5232 via failover (Worker 02).',
+    createdAt: ago({ minutes: 13 }),
+    target: { type: 'order', id: 'ord_92831' },
+    read: true,
+  },
+  {
+    id: 'ntf_06',
+    kind: 'order',
+    severity: 'danger',
+    title: 'Ativação falhou',
+    body: 'ORD-92830 · A operadora recusou o número de destino.',
+    createdAt: ago({ minutes: 21 }),
+    target: { type: 'order', id: 'ord_92830' },
+  },
+  {
+    id: 'ntf_07',
+    kind: 'sim',
+    severity: 'warning',
+    title: 'SIM 2 atingiu o limite',
+    body: 'Worker 02 · 10/10 ativações hoje. Excluído da rotação até amanhã.',
+    createdAt: ago({ minutes: 52 }),
+    target: { type: 'sim', id: 'sim_02_2' },
+    read: true,
+  },
+  {
+    id: 'ntf_08',
+    kind: 'activation',
+    severity: 'success',
+    title: '10 pacotes ativados',
+    body: 'Marco atingido hoje. Taxa de sucesso de 96%.',
+    createdAt: ago({ hours: 2 }),
+    target: { type: 'automation' },
+    read: true,
+  },
+  {
+    id: 'ntf_09',
+    kind: 'whatsapp',
+    severity: 'info',
+    title: 'Novo grupo monitorizado',
+    body: 'ByteStore Matola foi adicionado ao MegaBot.',
+    createdAt: ago({ hours: 5 }),
+    target: { type: 'whatsapp' },
+    read: true,
+  },
+  {
+    id: 'ntf_10',
+    kind: 'system',
+    severity: 'info',
+    title: 'Resumo de ontem',
+    body: '9 vendas · 100% ativadas automaticamente.',
+    createdAt: ago({ days: 1, hours: 1 }),
+    read: true,
+  },
+  {
+    id: 'ntf_11',
+    kind: 'device',
+    severity: 'success',
+    title: 'Worker 04 ligado',
+    body: 'Novo dispositivo emparelhado com sucesso.',
+    createdAt: ago({ days: 1, hours: 6 }),
+    target: { type: 'device', id: 'dev_04' },
+    read: true,
+  },
+];
+
+export const mockNotifications: AppNotification[] = seeds.map((seed) => ({
+  tenantId: TENANT_ID,
+  read: false,
+  ...seed,
+}));
