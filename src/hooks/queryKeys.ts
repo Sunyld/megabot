@@ -1,4 +1,10 @@
-import type { OrderListParams, PaymentListParams } from '@/services';
+import type {
+  OrderListParams,
+  PaymentEventListParams,
+  PaymentListParams,
+  PaymentMatchListParams,
+  PaymentProofListParams,
+} from '@/services';
 import type { AuditLogQuery, ID, PlatformTenantListParams } from '@/types';
 
 /** Centralized query keys — prefixes are used for invalidation. */
@@ -20,6 +26,16 @@ export const queryKeys = {
     summary: () => ['payments', 'summary'] as const,
     accounts: () => ['payments', 'accounts'] as const,
     detail: (id: ID) => ['payments', 'detail', id] as const,
+  },
+  /** Financial core (005): accounts, real events, customer proofs, decisions. */
+  reconciliation: {
+    all: ['reconciliation'] as const,
+    accounts: () => ['reconciliation', 'accounts'] as const,
+    events: (params: PaymentEventListParams) => ['reconciliation', 'events', params] as const,
+    event: (id: ID) => ['reconciliation', 'event', id] as const,
+    proofs: (params: PaymentProofListParams) => ['reconciliation', 'proofs', params] as const,
+    proof: (id: ID) => ['reconciliation', 'proof', id] as const,
+    matches: (params: PaymentMatchListParams) => ['reconciliation', 'matches', params] as const,
   },
   products: {
     all: ['products'] as const,

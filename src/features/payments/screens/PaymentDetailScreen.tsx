@@ -23,7 +23,7 @@ import { checkLabels, paymentStatusMeta } from '@/constants/labels';
 import { useApprovePayment, usePayment, useRejectPayment } from '@/hooks';
 import { errorMessage } from '@/services';
 import { createStyles, type Tone, useTheme } from '@/theme';
-import type { Payment, ReconciliationCheck } from '@/types';
+import type { Payment, ReconciliationCheck, WalletEvent } from '@/types';
 import { formatDateTime, formatMoney, formatPercent, formatPhone, formatTime } from '@/utils/format';
 
 import { PaymentMethodBadge } from '../components/PaymentCard';
@@ -39,23 +39,42 @@ function decision(payment: Payment): { tone: Tone; title: string; body: string }
   switch (payment.status) {
     case 'confirmed':
       return payment.confirmedBy === 'manual'
-        ? { tone: 'success', title: 'Aprovado manualmente', body: 'Aprovou este pagamento apesar das diferenças. A ativação foi iniciada.' }
+        ? {
+            tone: 'success',
+            title: 'Confirmado manualmente',
+            body: 'Confirmou este pagamento com base no movimento real da carteira. A decisão ficou registada na auditoria.',
+          }
         : {
             tone: 'success',
             title: 'Confirmado por regras',
-            body: 'O ID da transação, o valor, a conta e a data coincidem com a mensagem real da carteira.',
+            body: 'O movimento real da carteira coincide com o pedido: fornecedor, ID da transação, valor exato, conta e data.',
           };
     case 'pending':
       return {
         tone: 'info',
         title: 'A aguardar a carteira',
-        body: 'O comprovativo foi lido, mas a mensagem de confirmação (SMS) com este ID ainda não chegou a nenhum dispositivo.',
+        body: 'O comprovativo foi registado, mas ainda não existe um movimento real da carteira com este ID. Um comprovativo sozinho nunca confirma um pagamento.',
       };
     case 'review':
       return { tone: 'warning', title: 'Precisa da sua decisão', body: payment.reviewReason ?? 'Os dados não coincidem.' };
     case 'rejected':
       return { tone: 'danger', title: 'Rejeitado', body: payment.reviewReason ?? 'Pagamento rejeitado.' };
   }
+}
+
+/** "Paid" only once a real wallet event confirmed it; otherwise say what we actually have. */
+function heroCaption(payment: Payment): string {
+  const by = payment.payerName ? ` por ${payment.payerName}` : '';
+  if (payment.status === 'confirmed') return `Pago em ${formatDateTime(payment.paidAt, true)}${by}`;
+  if (payment.walletEvent) return `Movimento da carteira de ${formatDateTime(payment.paidAt, true)}${by}`;
+  return `Comprovativo recebido em ${formatDateTime(payment.receivedAt, true)}`;
+}
+
+function walletEventCaption(event: WalletEvent): string {
+  const at = formatTime(event.receivedAt, true);
+  if (event.source === 'sms' && event.deviceName) return `Lida por ${event.deviceName} · SIM ${event.simSlot ?? '—'} às ${at}`;
+  if (event.source === 'provider_api') return `Recebido da API do fornecedor às ${at}`;
+  return `Registado manualmente pelo vendedor às ${at}`;
 }
 
 function CheckRow({ check, last }: { check: ReconciliationCheck; last: boolean }) {
@@ -71,7 +90,7 @@ function CheckRow({ check, last }: { check: ReconciliationCheck; last: boolean }
         <Text variant="bodyMedium">{checkLabels[check.key]}</Text>
         {check.result === 'mismatch' ? (
           <Text variant="caption" color="danger">
-            {`Esperado ${check.expected ?? '—'} · Recebido ${check.actual ?? '—'}`}
+            {check.expected || check.actual ? `Esperado ${check.expected ?? '—'} · Recebido ${check.actual ?? '—'}` : 'Não coincide'}
           </Text>
         ) : check.result === 'missing' ? (
           <Text variant="caption" color="muted">
@@ -113,9 +132,9 @@ export function PaymentDetailScreen() {
     try {
       await approve.mutateAsync(id);
       setApproveOpen(false);
-      toast.success('Pagamento aprovado', 'A ativação do pacote foi iniciada.');
+      toast.success('Pagamento confirmado', 'O pedido passou a Pago. A decisão ficou registada.');
     } catch (e) {
-      toast.error('Não foi possível aprovar', errorMessage(e));
+      toast.error('Não foi possível confirmar', errorMessage(e));
     }
   };
 
@@ -123,25 +142,37 @@ export function PaymentDetailScreen() {
     try {
       await reject.mutateAsync({ id, reason });
       setRejectOpen(false);
-      toast.show({ title: 'Pagamento rejeitado', description: 'O cliente será informado no WhatsApp.', tone: 'danger', icon: 'cancel' });
+      toast.show({
+        title: 'Comprovativo rejeitado',
+        description: 'O pedido volta a aguardar um pagamento válido.',
+        tone: 'danger',
+        icon: 'cancel',
+      });
     } catch (e) {
       toast.error('Não foi possível rejeitar', errorMessage(e));
     }
   };
 
   const data = payment.data;
+  // A proof can be rejected; only a REAL wallet event can be confirmed.
+  const canReject = data?.status === 'review' && !!data.proof;
+  const canConfirm = data?.status === 'review' && !!data.walletEvent;
 
   return (
     <Screen
       edges={['top', 'bottom']}
       refreshing={payment.isRefreshing}
       onRefresh={() => void payment.refetch()}
-      header={<StackHeader title="Pagamento" subtitle={data?.transactionId} />}
+      header={<StackHeader title="Pagamento" subtitle={data?.transactionId ?? undefined} />}
       footer={
-        data?.status === 'review' ? (
+        canReject || canConfirm ? (
           <View style={styles.footer}>
-            <Button label="Rejeitar" variant="danger" icon="cancel" style={styles.flex} onPress={() => setRejectOpen(true)} />
-            <Button label="Aprovar e ativar" variant="success" icon="check" style={styles.flex} onPress={() => setApproveOpen(true)} />
+            {canReject ? (
+              <Button label="Rejeitar" variant="danger" icon="cancel" style={styles.flex} onPress={() => setRejectOpen(true)} />
+            ) : null}
+            {canConfirm ? (
+              <Button label="Confirmar" variant="success" icon="check" style={styles.flex} onPress={() => setApproveOpen(true)} />
+            ) : null}
           </View>
         ) : null
       }>
@@ -163,11 +194,11 @@ export function PaymentDetailScreen() {
                   <StatusBadge meta={paymentStatusMeta[p.status]} />
                 </View>
                 <Text variant="hero">{formatMoney(p.amount)}</Text>
-                <Text variant="mono" color="secondary" selectable>
-                  {p.transactionId}
+                <Text variant="mono" color={p.transactionId ? 'secondary' : 'muted'} selectable>
+                  {p.transactionId ?? 'Sem ID de transação'}
                 </Text>
                 <Text variant="caption" color="muted">
-                  {`Pago em ${formatDateTime(p.paidAt, true)}${p.payerName ? ` por ${p.payerName}` : ''}`}
+                  {heroCaption(p)}
                 </Text>
               </Card>
 
@@ -183,23 +214,39 @@ export function PaymentDetailScreen() {
                 </View>
               </View>
 
-              <Section title="Reconciliação" subtitle="Regras determinísticas — a IA nunca confirma pagamentos">
-                <Card padding={0} style={styles.checks}>
-                  {p.checks.map((check, index) => (
-                    <CheckRow key={check.key} check={check} last={index === p.checks.length - 1} />
-                  ))}
-                </Card>
+              <Section title="Resultado da reconciliação" subtitle="Regras determinísticas — a IA nunca confirma pagamentos">
+                {p.checks.length ? (
+                  <Card padding={0} style={styles.checks}>
+                    {p.checks.map((check, index) => (
+                      <CheckRow key={check.key} check={check} last={index === p.checks.length - 1} />
+                    ))}
+                  </Card>
+                ) : (
+                  <Card>
+                    <EmptyState
+                      compact
+                      icon="pending"
+                      title="Ainda sem verificação"
+                      description="A verificação compara o pedido com um movimento real da carteira — que ainda não existe."
+                    />
+                  </Card>
+                )}
               </Section>
 
               <Section
                 title="Comprovativo do cliente"
-                right={p.proof ? <Badge label={`IA · ${formatPercent(p.proof.confidence)}`} tone="ai" icon="ai" size="sm" /> : undefined}>
+                subtitle="O que o cliente declara — não confirma o pagamento"
+                right={
+                  p.proof && p.proof.confidence !== null ? (
+                    <Badge label={`IA · ${formatPercent(p.proof.confidence)}`} tone="ai" icon="ai" size="sm" />
+                  ) : undefined
+                }>
                 {p.proof ? (
                   <Card style={styles.proof}>
-                    <RawMessage text={p.proof.rawText} />
+                    {p.proof.rawText ? <RawMessage text={p.proof.rawText} /> : null}
                     <View>
                       <Text variant="overline" color="muted" style={styles.overline}>
-                        Dados extraídos
+                        {p.proof.extractedBy === 'manual' ? 'Dados indicados' : 'Dados extraídos'}
                       </Text>
                       <KeyValue label="ID da transação" value={p.proof.fields.transactionId} mono />
                       <KeyValue label="Valor" value={p.proof.fields.amount !== null ? formatMoney(p.proof.fields.amount) : null} />
@@ -214,25 +261,32 @@ export function PaymentDetailScreen() {
                     <View style={styles.aiNote}>
                       <Icon name="info" size={16} color={colors.textMuted} />
                       <Text variant="caption" color="muted" style={styles.flex}>
-                        A IA apenas interpreta a mensagem. A confirmação usa a mensagem real da carteira.
+                        {p.proof.extractedBy === 'manual'
+                          ? 'Declaração do cliente. Só o movimento real da carteira confirma o pagamento.'
+                          : 'A IA apenas interpreta a mensagem. A confirmação usa o movimento real da carteira.'}
                       </Text>
                     </View>
                   </Card>
                 ) : (
                   <Card>
-                    <EmptyState compact icon="receipt" title="Sem comprovativo" description="Pagamento detetado apenas pela mensagem da carteira." />
+                    <EmptyState
+                      compact
+                      icon="receipt"
+                      title="Sem comprovativo"
+                      description="Pagamento detetado apenas pelo movimento real da carteira."
+                    />
                   </Card>
                 )}
               </Section>
 
-              <Section title="Mensagem da carteira" subtitle="Fonte de verdade da reconciliação">
+              <Section title="Evento real da carteira" subtitle="Fonte de verdade da reconciliação">
                 {p.walletEvent ? (
                   <Card style={styles.proof}>
-                    <RawMessage text={p.walletEvent.rawText} />
+                    {p.walletEvent.rawText ? <RawMessage text={p.walletEvent.rawText} /> : null}
                     <View style={styles.aiNote}>
-                      <Icon name="sms" size={16} color={colors.textMuted} />
+                      <Icon name={p.walletEvent.source === 'sms' ? 'sms' : 'receipt'} size={16} color={colors.textMuted} />
                       <Text variant="caption" color="muted" style={styles.flex}>
-                        {`Lida por ${p.walletEvent.deviceName} · SIM ${p.walletEvent.simSlot} às ${formatTime(p.walletEvent.receivedAt, true)}`}
+                        {walletEventCaption(p.walletEvent)}
                       </Text>
                     </View>
                   </Card>
@@ -242,11 +296,11 @@ export function PaymentDetailScreen() {
                       compact
                       icon="sms"
                       tone={p.status === 'rejected' ? 'danger' : 'info'}
-                      title={p.status === 'rejected' ? 'Sem mensagem válida' : 'Ainda não recebida'}
+                      title={p.status === 'rejected' ? 'Sem movimento válido' : 'Ainda não recebido'}
                       description={
                         p.status === 'rejected'
-                          ? 'Nenhuma nova mensagem da carteira corresponde a este comprovativo.'
-                          : 'Assim que o SMS da carteira chegar, a confirmação é automática.'
+                          ? 'Nenhum movimento real da carteira confirma este comprovativo.'
+                          : 'Quando o movimento real da carteira for registado, a reconciliação é automática.'
                       }
                     />
                   </Card>
@@ -275,13 +329,13 @@ export function PaymentDetailScreen() {
         onClose={() => setApproveOpen(false)}
         icon="checkCircle"
         tone="success"
-        title="Aprovar pagamento?"
+        title="Confirmar pagamento?"
         message={
           data
-            ? `Recebeu ${formatMoney(data.amount)}. Ao aprovar, o pacote é ativado de imediato e a diferença fica por sua conta.`
+            ? `Confirma que o movimento real da carteira de ${formatMoney(data.amount)} paga este pedido. Valores diferentes do pedido nunca são aceites. A decisão fica registada na auditoria.`
             : undefined
         }
-        confirmLabel="Aprovar"
+        confirmLabel="Confirmar"
         confirmVariant="success"
         loading={approve.isPending}
         onConfirm={runApprove}
@@ -292,8 +346,8 @@ export function PaymentDetailScreen() {
         onClose={() => setRejectOpen(false)}
         icon="cancel"
         tone="danger"
-        title="Rejeitar pagamento?"
-        message="O pedido será cancelado e o cliente recebe o motivo no WhatsApp."
+        title="Rejeitar comprovativo?"
+        message="O comprovativo fica rejeitado e o pedido volta a aguardar um pagamento válido. Os movimentos reais da carteira nunca são apagados."
         confirmLabel="Rejeitar"
         confirmVariant="danger"
         loading={reject.isPending}

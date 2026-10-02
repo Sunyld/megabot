@@ -33,7 +33,7 @@ const stamp = (order: Order, type: OrderEvent['type'], description?: string, tra
 };
 
 /** Same rules as the database: only valid transitions, each one recorded. */
-function transition(order: Order, to: OrderStatus, reason?: string | null) {
+export function transition(order: Order, to: OrderStatus, reason?: string | null) {
   if (order.status === to) return order;
   if (!canTransition(order.status, to)) throw invalidTransition(order.status, to);
   const from = order.status;

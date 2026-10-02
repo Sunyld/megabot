@@ -128,11 +128,22 @@ function PaymentsSection() {
   return (
     <>
       <Section title="Contas de recebimento">
-        <QueryView query={accounts} loading={<Skeleton height={180} radius={16} />}>
+        <QueryView
+          query={accounts}
+          loading={<Skeleton height={180} radius={16} />}
+          isEmpty={(list) => list.length === 0}
+          empty={
+            <EmptyState
+              icon="payments"
+              title="Sem contas de recebimento"
+              description="As contas M-Pesa e e-Mola onde a empresa recebe pagamentos aparecem aqui."
+              compact
+            />
+          }>
           {(list) => (
             <View style={styles.stack}>
               {list.map((account) => (
-                <Card key={account.method} style={styles.account}>
+                <Card key={`${account.method}:${account.account}`} style={styles.account}>
                   <View style={styles.spread}>
                     <Badge label={paymentMethodMeta[account.method].label} tone={paymentMethodMeta[account.method].tone} variant="outline" />
                     <Text variant="mono">{formatPhone(account.account)}</Text>
@@ -154,12 +165,19 @@ function PaymentsSection() {
           )}
         </QueryView>
       </Section>
-      <Section title="Regras de reconciliação" subtitle="Aplicadas antes de qualquer ativação">
+      <Section title="Regras de reconciliação" subtitle="Determinísticas, aplicadas pelo servidor — a IA nunca confirma">
         <ListGroup>
-          <ToggleRow icon="receipt" title="Exigir ID da transação" subtitle="Referência principal" locked />
-          <ToggleRow icon="shield" title="Rejeitar IDs duplicados" subtitle="Cada ID só é usado uma vez" locked />
-          <ToggleRow icon="payments" title="Valor exato" subtitle="Valores diferentes vão para revisão" />
-          <ToggleRow icon="clock" title="Janela de 24 horas" subtitle="Comprovativos antigos vão para revisão" divider={false} />
+          <ToggleRow icon="sms" title="Movimento real da carteira" subtitle="Um comprovativo sozinho não confirma" locked />
+          <ToggleRow icon="receipt" title="Fornecedor e ID da transação" subtitle="M-Pesa e e-Mola nunca se misturam" locked />
+          <ToggleRow icon="payments" title="Valor exato" subtitle="A mais ou a menos vai para revisão" locked />
+          <ToggleRow icon="shield" title="Um movimento, um pedido" subtitle="Movimentos já usados são duplicados" locked />
+          <ToggleRow
+            icon="clock"
+            title="Janela de tempo"
+            subtitle="Até 1 h antes e 48 h depois do pedido"
+            locked
+            divider={false}
+          />
         </ListGroup>
       </Section>
     </>

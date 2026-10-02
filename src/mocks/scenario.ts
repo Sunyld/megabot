@@ -14,6 +14,7 @@ import type {
   OrderEventType,
   OrderStatus,
   Payment,
+  PaymentAccountRecord,
   PaymentMethod,
   ReconciliationCheck,
   TaskAttempt,
@@ -43,6 +44,18 @@ export const sellerWallets: Record<PaymentMethod, { account: string; deviceId: s
   mpesa: { account: '845550218', deviceId: 'dev_01', deviceName: 'Device Principal', simSlot: 2 },
   mkesh: { account: '823456789', deviceId: 'dev_01', deviceName: 'Device Principal', simSlot: 1 },
 };
+
+/** The demo seller's receiving accounts in the financial core (payment_accounts, migration 005). */
+export const mockPaymentAccounts: PaymentAccountRecord[] = (['mpesa', 'emola'] as const).map((method) => ({
+  id: `pac_${method}`,
+  tenantId: TENANT_ID,
+  provider: method === 'mpesa' ? 'MPESA' : 'EMOLA',
+  accountName: ACCOUNT_HOLDER,
+  accountIdentifier: `+258${sellerWallets[method].account}`,
+  status: 'ACTIVE',
+  createdAt: '2026-01-05T08:00:00.000Z',
+  updatedAt: '2026-01-05T08:00:00.000Z',
+}));
 
 // ─── Message templates ───────────────────────────────────────────────────────
 
@@ -162,6 +175,7 @@ function addPayment(draft: Draft, orderId: string | null, paidAt: string, amount
     walletEvent: {
       rawText: walletText(draft.method, tx, amount, draft.phone.replace('+258', ''), draft.customer, paidAt),
       receivedAt: addSeconds(paidAt, 4),
+      source: 'sms',
       deviceId: wallet.deviceId,
       deviceName: wallet.deviceName,
       simSlot: wallet.simSlot,
@@ -328,7 +342,7 @@ const minutesAgo = (minutes: number) => ago({ minutes });
     events(draft.code, [
       ['created', draft.createdAt],
       ['destination_provided', addSeconds(draft.createdAt, 30)],
-      ['payment_proof_received', addSeconds(paidAt, 25), payment.transactionId],
+      ['payment_proof_received', addSeconds(paidAt, 25), payment.transactionId ?? undefined],
       ['payment_confirmed', confirmedAt, 'Regras: ID, valor, conta e data coincidem'],
       ['task_created', addSeconds(confirmedAt, 1), `${task.code} · na fila`],
     ]),
@@ -355,7 +369,7 @@ const minutesAgo = (minutes: number) => ago({ minutes });
     events(draft.code, [
       ['created', draft.createdAt],
       ['destination_provided', addSeconds(draft.createdAt, 25)],
-      ['payment_proof_received', addSeconds(paidAt, 25), payment.transactionId],
+      ['payment_proof_received', addSeconds(paidAt, 25), payment.transactionId ?? undefined],
       ['payment_confirmed', confirmedAt, 'Regras: ID, valor, conta e data coincidem'],
       ['task_created', addSeconds(confirmedAt, 1), task.code],
       ['device_selected', addSeconds(confirmedAt, 2), 'Worker 04 · SIM 1'],
@@ -402,7 +416,7 @@ completedSale(
     events(draft.code, [
       ['created', draft.createdAt],
       ['destination_provided', addSeconds(draft.createdAt, 35)],
-      ['payment_proof_received', addSeconds(paidAt, 25), payment.transactionId],
+      ['payment_proof_received', addSeconds(paidAt, 25), payment.transactionId ?? undefined],
       ['payment_review', addSeconds(paidAt, 32), 'Valor diferente do preço — intervenção humana necessária'],
     ]),
     { paymentId: payment.id, transactionId: payment.transactionId }
@@ -432,7 +446,7 @@ completedSale(
     events(draft.code, [
       ['created', draft.createdAt],
       ['destination_provided', addSeconds(draft.createdAt, 45)],
-      ['payment_proof_received', addSeconds(paidAt, 25), payment.transactionId],
+      ['payment_proof_received', addSeconds(paidAt, 25), payment.transactionId ?? undefined],
       ['payment_confirmed', confirmedAt, 'Regras: ID, valor, conta e data coincidem'],
       ['task_created', addSeconds(confirmedAt, 1), task.code],
       ['device_selected', addSeconds(confirmedAt, 2), 'Worker 02 · SIM 1'],
@@ -468,7 +482,7 @@ completedSale(
     events(draft.code, [
       ['created', draft.createdAt],
       ['destination_provided', addSeconds(draft.createdAt, 38)],
-      ['payment_proof_received', addSeconds(paidAt, 22), payment.transactionId],
+      ['payment_proof_received', addSeconds(paidAt, 22), payment.transactionId ?? undefined],
       ['payment_confirmed', confirmedAt, 'Regras: ID, valor, conta e data coincidem'],
       ['task_created', addSeconds(confirmedAt, 1), task.code],
       ['failover', t2, 'Device Principal: SIM 1 e SIM 2 indisponíveis'],
@@ -504,7 +518,7 @@ completedSale(
     events(draft.code, [
       ['created', draft.createdAt],
       ['destination_provided', addSeconds(draft.createdAt, 30)],
-      ['payment_proof_received', addSeconds(paidAt, 25), payment.transactionId],
+      ['payment_proof_received', addSeconds(paidAt, 25), payment.transactionId ?? undefined],
       ['payment_confirmed', confirmedAt, 'Regras: ID, valor, conta e data coincidem'],
       ['task_created', addSeconds(confirmedAt, 1), task.code],
       ['device_selected', addSeconds(confirmedAt, 2), 'Device Principal · SIM 2'],
@@ -598,7 +612,7 @@ generate(9, 92807, yesterdayEnd - 11 * 60 * 60_000, yesterdayEnd, workers.filter
       confirmedBy: undefined,
       proof: flagship.proof && { ...flagship.proof, receivedAt: at, confidence: 0.94 },
       checks: [
-        { key: 'transaction_id', expected: flagship.transactionId, actual: flagship.transactionId, result: 'match' },
+        { key: 'transaction_id', expected: flagship.transactionId ?? undefined, actual: flagship.transactionId ?? undefined, result: 'match' },
         { key: 'amount', expected: '30 MT', actual: '30 MT', result: 'match' },
         { key: 'account', expected: flagship.account, actual: flagship.account, result: 'match' },
         { key: 'datetime', result: 'match' },

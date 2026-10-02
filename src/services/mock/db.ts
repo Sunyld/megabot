@@ -5,6 +5,7 @@ import {
   mockGroups,
   mockNotifications,
   mockOrders,
+  mockPaymentAccounts,
   mockPayments,
   mockProducts,
   mockSims,
@@ -12,6 +13,8 @@ import {
   mockWhatsAppConnection,
   TENANT_ID,
 } from '@/mocks';
+
+import type { PaymentEventRecord, PaymentMatchRecord, PaymentProofRecord } from '@/types';
 
 import { serviceContext } from '../context';
 import { AppError } from '../errors';
@@ -27,6 +30,11 @@ const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 export const db = {
   orders: clone(mockOrders),
   payments: clone(mockPayments),
+  // Financial core (005): receiving accounts, real events, customer proofs, decisions.
+  paymentAccounts: clone(mockPaymentAccounts),
+  paymentEvents: [] as PaymentEventRecord[],
+  paymentProofs: [] as PaymentProofRecord[],
+  paymentMatches: [] as PaymentMatchRecord[],
   tasks: clone(mockTasks),
   products: clone(mockProducts),
   devices: clone(mockDevices),

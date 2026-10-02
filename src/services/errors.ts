@@ -49,6 +49,12 @@ export type AppErrorReason =
   | 'TENANT_SUSPENDED'
   | 'INVALID_TRANSITION'
   | 'IDEMPOTENCY_KEY_REUSED'
+  // Payments (financial core)
+  | 'PAYMENT_ACCOUNT_EXISTS'
+  | 'PAYMENT_EVENT_CONFLICT'
+  | 'PAYMENT_NOT_CONFIRMABLE'
+  | 'PROOF_ALREADY_DECIDED'
+  | 'PAYMENT_WRITE_DENIED'
   // Shared by domains still to come (payments, activation)
   | 'FEATURE_NOT_AVAILABLE'
   // Shared

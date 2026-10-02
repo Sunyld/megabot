@@ -1,19 +1,27 @@
 import type { ID, ISODateString, PaymentMethod, TenantScoped } from './common';
 
 /**
- * - confirmed: deterministic rules matched the customer's proof with a wallet event.
- * - pending:   proof received, waiting for the wallet event (SMS) to arrive.
+ * View model of the Payments screens: one "payment case" = a customer's proof
+ * and/or a real wallet event, with the reconciliation result. In Supabase mode
+ * it is built from payment_proofs / payment_events / payment_matches (005).
+ *
+ * - confirmed: a REAL wallet event matched the order (rules or a human decision).
+ * - pending:   proof received, the real wallet event has not arrived yet.
  * - review:    data mismatch — needs a human decision.
  * - rejected:  invalid / duplicated / manually rejected.
+ * A proof alone is never "confirmed".
  */
 export type PaymentStatus = 'confirmed' | 'pending' | 'review' | 'rejected';
 
 export type PaymentFilter = 'all' | PaymentStatus;
 
 export type ReconciliationCheckKey =
+  | 'order'
+  | 'provider'
   | 'transaction_id'
   | 'amount'
   | 'account'
+  | 'sender'
   | 'datetime'
   | 'duplicate';
 
@@ -34,28 +42,33 @@ export type ExtractedProof = {
 };
 
 export type PaymentProof = {
-  rawText: string;
+  rawText: string | null;
   receivedAt: ISODateString;
-  extractedBy: 'ai' | 'parser';
-  /** 0..1 extraction confidence. */
-  confidence: number;
+  /** Who read the fields: AI / parser (never authoritative) or typed in by a person. */
+  extractedBy: 'ai' | 'parser' | 'manual';
+  /** 0..1 extraction confidence; `null` when typed in. */
+  confidence: number | null;
   fields: ExtractedProof;
 };
 
-/** Wallet confirmation captured by an Android device (SMS reader). */
+/** Real wallet movement: read by an Android device (SMS), typed in by the owner, or from a provider API. */
 export type WalletEvent = {
-  rawText: string;
+  rawText: string | null;
   receivedAt: ISODateString;
-  deviceId: ID;
-  deviceName: string;
-  simSlot: 1 | 2;
+  source: 'sms' | 'manual' | 'provider_api';
+  /** Device / SIM that read the SMS (`null` for other sources). */
+  deviceId: ID | null;
+  deviceName: string | null;
+  simSlot: 1 | 2 | null;
 };
 
 export type Payment = TenantScoped & {
   id: ID;
-  transactionId: string;
+  /** `null` when the customer only sent a message without a readable ID. */
+  transactionId: string | null;
   amount: number;
-  method: PaymentMethod;
+  /** `null` when the customer did not say which wallet. */
+  method: PaymentMethod | null;
   status: PaymentStatus;
   payerName: string | null;
   payerNumber: string | null;

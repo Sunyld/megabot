@@ -11,7 +11,9 @@ import type {
   AuditLogQuery,
   AutomationSettings,
   AutomationStats,
+  ConfirmPaymentInput,
   CreateOrderInput,
+  CreatePaymentAccountInput,
   Conversation,
   DashboardSummary,
   Device,
@@ -22,18 +24,26 @@ import type {
   OrderFilter,
   Payment,
   PaymentAccount,
+  PaymentAccountRecord,
+  PaymentEventRecord,
   PaymentFilter,
+  PaymentMatchRecord,
+  PaymentProofRecord,
   PaymentsSummary,
   PlatformAdminContext,
   PlatformTenant,
   PlatformTenantListParams,
   Product,
   ProductInput,
+  ReconciliationStatus,
+  RecordPaymentEventInput,
   Session,
   SignInCredentials,
   SignUpInput,
   Sim,
+  SubmitPaymentProofInput,
   TenantStatusChangeInput,
+  UpdatePaymentAccountInput,
   WhatsAppConnection,
   WhatsAppGroup,
 } from '@/types';
@@ -110,15 +120,77 @@ export interface OrdersService {
 
 export type PaymentListParams = { filter?: PaymentFilter; search?: string };
 
+/**
+ * Payments screens: "payment cases" (a customer's proof and / or a real wallet
+ * event, with the reconciliation result). In Supabase mode this is a read
+ * model over the financial core below; `approve` / `reject` delegate to
+ * PaymentMatchesService.confirmManually / PaymentProofsService.reject.
+ */
 export interface PaymentsService {
   list(params?: PaymentListParams): Promise<Payment[]>;
   summary(): Promise<PaymentsSummary>;
   get(id: ID): Promise<Payment>;
-  /** Human override for payments under review. */
+  /** Human decision on a case under review: confirms it against the real wallet event. */
   approve(id: ID): Promise<Payment>;
+  /** Rejects the customer's proof (a real wallet event can never be rejected). */
   reject(id: ID, reason: string): Promise<Payment>;
   /** Wallet accounts the tenant receives payments on. */
   listAccounts(): Promise<PaymentAccount[]>;
+}
+
+/**
+ * Financial core (migration 005). Receiving accounts of the tenant. Reads: any
+ * member; writes: owner / admin of an active tenant (audited). Never holds
+ * credentials — only the provider, the holder name and the identifier.
+ */
+export interface PaymentAccountsService {
+  list(): Promise<PaymentAccountRecord[]>;
+  create(input: CreatePaymentAccountInput): Promise<PaymentAccountRecord>;
+  /** Name / status only: provider and identifier are fixed (create a new account instead). */
+  update(id: ID, input: UpdatePaymentAccountInput): Promise<PaymentAccountRecord>;
+}
+
+export type PaymentEventListParams = { paymentAccountId?: ID };
+
+/**
+ * Real wallet movements (immutable facts). `record` is the safe manual way to
+ * register one (owner / admin, audited, idempotent per provider + account +
+ * transaction ID); it immediately runs the deterministic reconciliation.
+ */
+export interface PaymentEventsService {
+  list(params?: PaymentEventListParams): Promise<PaymentEventRecord[]>;
+  get(id: ID): Promise<PaymentEventRecord>;
+  record(input: RecordPaymentEventInput): Promise<PaymentEventRecord>;
+}
+
+export type PaymentProofListParams = { orderId?: ID; status?: ReconciliationStatus };
+
+/**
+ * Customer proofs: evidence, never authority. Their status is decided by the
+ * backend only (reconciliation or an owner / admin rejection).
+ */
+export interface PaymentProofsService {
+  list(params?: PaymentProofListParams): Promise<PaymentProofRecord[]>;
+  get(id: ID): Promise<PaymentProofRecord>;
+  /** Any member. Stored, then reconciled — a proof alone never confirms. */
+  submit(input: SubmitPaymentProofInput): Promise<PaymentProofRecord>;
+  /** Re-runs the reconciliation (e.g. after the real event arrived). Idempotent. */
+  reconcile(id: ID): Promise<PaymentProofRecord>;
+  /** Owner / admin, audited. Final. */
+  reject(id: ID, reason: string): Promise<PaymentProofRecord>;
+}
+
+export type PaymentMatchListParams = { orderId?: ID; paymentEventId?: ID; paymentProofId?: ID };
+
+/** Reconciliation decisions (append-only). */
+export interface PaymentMatchesService {
+  list(params?: PaymentMatchListParams): Promise<PaymentMatchRecord[]>;
+  /**
+   * Owner / admin decision on a review: links a REAL event to an order. May
+   * accept a checked time-window / sender doubt, never a wrong amount,
+   * currency or account, a used event or an order that cannot be paid. Audited.
+   */
+  confirmManually(input: ConfirmPaymentInput): Promise<PaymentMatchRecord>;
 }
 
 /**
@@ -204,6 +276,10 @@ export type Services = {
   dashboard: DashboardService;
   orders: OrdersService;
   payments: PaymentsService;
+  paymentAccounts: PaymentAccountsService;
+  paymentEvents: PaymentEventsService;
+  paymentProofs: PaymentProofsService;
+  paymentMatches: PaymentMatchesService;
   products: ProductsService;
   devices: DevicesService;
   sims: SimsService;

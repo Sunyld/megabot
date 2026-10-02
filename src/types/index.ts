@@ -7,6 +7,7 @@ export * from './order';
 export * from './payment';
 export * from './platform';
 export * from './product';
+export * from './reconciliation';
 export * from './session';
 export * from './ussd';
 export * from './whatsapp';

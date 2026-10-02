@@ -112,11 +112,14 @@ export const paymentMethodMeta: Record<PaymentMethod, { label: string; tone: Ton
 };
 
 export const checkLabels: Record<ReconciliationCheckKey, string> = {
+  order: 'Pedido por pagar',
+  provider: 'Fornecedor (M-Pesa / e-Mola)',
   transaction_id: 'ID da transação',
-  amount: 'Valor',
+  amount: 'Valor exato',
   account: 'Conta de destino',
+  sender: 'Remetente',
   datetime: 'Data e hora',
-  duplicate: 'ID não reutilizado',
+  duplicate: 'Movimento não reutilizado',
 };
 
 export const deviceStatusMeta: Record<DeviceStatus, StatusMeta> = {

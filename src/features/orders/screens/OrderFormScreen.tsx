@@ -156,8 +156,8 @@ export function OrderFormScreen() {
         </Section>
 
         <Text variant="caption" color="muted">
-          O preço e os dados do produto ficam fixados neste momento. O pedido começa como “Pendente”; o pagamento e a ativação
-          chegam nas próximas fases.
+          O preço e os dados do produto ficam fixados neste momento. O pedido começa como “Pendente” e só passa a “Pago” quando
+          um movimento real da carteira corresponder ao valor exato. A ativação chega numa próxima fase.
         </Text>
       </Screen>
     </KeyboardAvoidingView>

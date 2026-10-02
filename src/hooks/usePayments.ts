@@ -4,7 +4,13 @@ import type { ID } from '@/types';
 
 import { queryKeys } from './queryKeys';
 
-const affected = [queryKeys.payments.all, queryKeys.orders.all, queryKeys.dashboard.all, queryKeys.automation.all];
+const affected = [
+  queryKeys.payments.all,
+  queryKeys.reconciliation.all,
+  queryKeys.orders.all,
+  queryKeys.dashboard.all,
+  queryKeys.automation.all,
+];
 
 export function usePayments(params: PaymentListParams = {}) {
   return useQuery(queryKeys.payments.list(params), () => api.payments.list(params), { keepPreviousData: true });

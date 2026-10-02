@@ -1,6 +1,6 @@
 /**
  * Database types for the Supabase client, in the format produced by
- * `supabase gen types typescript`. Written by hand for migrations 001–004
+ * `supabase gen types typescript`. Written by hand for migrations 001–005
  * because the database is not reachable from this environment — regenerate
  * once the CLI/MCP is available and keep in sync with supabase/migrations.
  *
@@ -333,6 +333,209 @@ export type Database = {
           },
         ];
       };
+      payment_accounts: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          provider: string;
+          account_name: string;
+          account_identifier: string;
+          status: string;
+          metadata: Json;
+          created_at: string;
+          updated_at: string;
+        };
+        /** Not writable through the API (no grants): use create_payment_account / update_payment_account. */
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          provider: string;
+          account_name: string;
+          account_identifier: string;
+          status?: string;
+          metadata?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          account_name?: string;
+          status?: string;
+          metadata?: Json;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'payment_accounts_tenant_id_fkey';
+            columns: ['tenant_id'];
+            isOneToOne: false;
+            referencedRelation: 'tenants';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      payment_events: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          payment_account_id: string;
+          provider: string;
+          transaction_id: string;
+          amount: number;
+          currency: string;
+          sender_identifier: string | null;
+          recipient_identifier: string | null;
+          occurred_at: string;
+          received_at: string;
+          raw_message: string | null;
+          source: string;
+          recorded_by: string | null;
+          metadata: Json;
+          created_at: string;
+        };
+        /** Immutable; the API records events only through record_payment_event. */
+        Insert: {
+          id?: string;
+          tenant_id?: string;
+          payment_account_id: string;
+          provider?: string;
+          transaction_id: string;
+          amount: number;
+          currency: string;
+          sender_identifier?: string | null;
+          recipient_identifier?: string | null;
+          occurred_at: string;
+          received_at?: string;
+          raw_message?: string | null;
+          source?: string;
+          recorded_by?: string | null;
+          metadata?: Json;
+          created_at?: string;
+        };
+        Update: {
+          [_ in never]: never;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'payment_events_payment_account_id_fkey';
+            columns: ['payment_account_id'];
+            isOneToOne: false;
+            referencedRelation: 'payment_accounts';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      payment_proofs: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          order_id: string | null;
+          provider: string | null;
+          transaction_id: string | null;
+          amount: number | null;
+          currency: string | null;
+          sender_identifier: string | null;
+          recipient_identifier: string | null;
+          raw_message: string | null;
+          source: string;
+          extracted_data: Json;
+          status: string;
+          status_reason: string | null;
+          review_note: string | null;
+          submitted_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        /** Not writable through the API: submit_payment_proof / reconcile_payment_proof / reject_payment_proof. */
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          order_id?: string | null;
+          provider?: string | null;
+          transaction_id?: string | null;
+          amount?: number | null;
+          currency?: string | null;
+          sender_identifier?: string | null;
+          recipient_identifier?: string | null;
+          raw_message?: string | null;
+          source?: string;
+          extracted_data?: Json;
+          submitted_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          status?: string;
+          status_reason?: string | null;
+          review_note?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'payment_proofs_order_id_fkey';
+            columns: ['order_id'];
+            isOneToOne: false;
+            referencedRelation: 'orders';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      payment_matches: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          order_id: string;
+          payment_proof_id: string | null;
+          payment_event_id: string | null;
+          match_status: string;
+          match_methods: string[];
+          reason: string | null;
+          details: Json;
+          matched_at: string;
+          matched_by: string | null;
+          metadata: Json;
+          created_at: string;
+        };
+        /** Written only by the reconciliation functions (append-only). */
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          order_id: string;
+          payment_proof_id?: string | null;
+          payment_event_id?: string | null;
+          match_status: string;
+          match_methods?: string[];
+          reason?: string | null;
+          details?: Json;
+          matched_at?: string;
+          matched_by?: string | null;
+          metadata?: Json;
+          created_at?: string;
+        };
+        Update: {
+          [_ in never]: never;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'payment_matches_order_id_fkey';
+            columns: ['order_id'];
+            isOneToOne: false;
+            referencedRelation: 'orders';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'payment_matches_payment_event_id_fkey';
+            columns: ['payment_event_id'];
+            isOneToOne: false;
+            referencedRelation: 'payment_events';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'payment_matches_payment_proof_id_fkey';
+            columns: ['payment_proof_id'];
+            isOneToOne: false;
+            referencedRelation: 'payment_proofs';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       audit_logs: {
         Row: {
           id: string;
@@ -417,6 +620,54 @@ export type Database = {
       order_status_counts: {
         Args: { p_tenant_id: string };
         Returns: { status: string; total: number }[];
+      };
+      create_payment_account: {
+        Args: { p_tenant_id: string; p_provider: string; p_account_name: string; p_account_identifier: string };
+        Returns: Database['public']['Tables']['payment_accounts']['Row'][];
+      };
+      update_payment_account: {
+        Args: { p_account_id: string; p_account_name?: string; p_status?: string };
+        Returns: Database['public']['Tables']['payment_accounts']['Row'][];
+      };
+      record_payment_event: {
+        Args: {
+          p_payment_account_id: string;
+          p_transaction_id: string;
+          p_amount: number;
+          p_occurred_at?: string;
+          p_currency?: string;
+          p_sender_identifier?: string;
+          p_recipient_identifier?: string;
+          p_raw_message?: string;
+        };
+        Returns: Database['public']['Tables']['payment_events']['Row'][];
+      };
+      submit_payment_proof: {
+        Args: {
+          p_order_id?: string;
+          p_provider?: string;
+          p_transaction_id?: string;
+          p_amount?: number;
+          p_currency?: string;
+          p_sender_identifier?: string;
+          p_recipient_identifier?: string;
+          p_raw_message?: string;
+          p_extracted_data?: Json;
+          p_tenant_id?: string;
+        };
+        Returns: Database['public']['Tables']['payment_proofs']['Row'][];
+      };
+      reconcile_payment_proof: {
+        Args: { p_proof_id: string };
+        Returns: Database['public']['Tables']['payment_proofs']['Row'][];
+      };
+      reject_payment_proof: {
+        Args: { p_proof_id: string; p_reason: string };
+        Returns: Database['public']['Tables']['payment_proofs']['Row'][];
+      };
+      confirm_payment_manually: {
+        Args: { p_order_id: string; p_payment_event_id: string; p_payment_proof_id?: string; p_note?: string };
+        Returns: Database['public']['Tables']['payment_matches']['Row'][];
       };
     };
     Enums: {

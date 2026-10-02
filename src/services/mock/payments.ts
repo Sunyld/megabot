@@ -4,6 +4,7 @@ import { isSameDay } from '@/utils/format';
 
 import type { PaymentsService } from '../types';
 import { db, notFound, ownedBy, request } from './db';
+import { transition } from './orders';
 import { runActivationPipeline } from './pipeline';
 
 const find = (tenantId: string, id: string) =>
@@ -76,21 +77,15 @@ export const mockPaymentsService: PaymentsService = {
       })
     ),
 
+  // Same semantics as the real backend: rejecting the proof never cancels the
+  // order — it goes back to waiting for a valid payment.
   reject: (id, reason) =>
     request((tenantId) => {
       const payment = find(tenantId, id);
       payment.status = 'rejected';
       payment.reviewReason = reason;
       const order = db.orders.find((o) => o.id === payment.orderId);
-      if (order) {
-        order.status = 'CANCELLED';
-        order.events.push({
-          id: `${order.code}-reject`,
-          type: 'cancelled',
-          at: new Date().toISOString(),
-          description: `Pagamento rejeitado — ${reason}`,
-        });
-      }
+      if (order?.status === 'VERIFYING') transition(order, 'AWAITING_PAYMENT', `Comprovativo rejeitado — ${reason}`);
       return payment;
     }),
 };

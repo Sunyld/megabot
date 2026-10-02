@@ -14,6 +14,8 @@ aborta sem alterar nada se encontrar objetos já existentes.
 | `tests/003_products.test.sql` | Verificação da 003 (transação revertida) |
 | `migrations/004_orders.sql` | `orders` (snapshot, referência pública, idempotência, máquina de estados) + `order_events` (histórico append-only) |
 | `tests/004_orders.test.sql` | Verificação da 004 (transação revertida) |
+| `migrations/005_payments.sql` | `payment_accounts`, `payment_events` (imutáveis), `payment_proofs`, `payment_matches` e reconciliação determinística que leva o pedido a `PAID` |
+| `tests/005_payments.test.sql` | Verificação da 005 (transação revertida) |
 
 ## Aplicar a 001
 
@@ -245,8 +247,8 @@ para **todos** os papéis (incluindo `service_role`). Os dados do pedido são im
 
 Sem INSERT/UPDATE/DELETE diretos para `authenticated`; `anon` sem acesso; tenant suspenso lê o
 histórico mas não cria nem altera pedidos; platform admins não ganham acesso a pedidos de
-empresas nas queries normais. `PAID`, ativação e expiração automática chegam nas próximas fases
-(Payments / worker Android).
+empresas nas queries normais. `PAID` só é atingido pela reconciliação determinística da 005;
+ativação e expiração automática chegam nas próximas fases (worker Android).
 
 ### Testes manuais (Fase 5)
 
@@ -259,6 +261,164 @@ empresas nas queries normais. `PAID`, ativação e expiração automática chega
    referência `MB-…`, estado *Pendente*, histórico com "Pedido criado".
    **Pedir pagamento** → *Aguarda pagamento*; **Cancelar pedido** (motivo opcional) → *Cancelado*.
 5. **Snapshot** — alterar o preço do produto: o pedido mantém o preço antigo.
+
+## Aplicar a 005 (Pagamentos e reconciliação)
+
+Requer a 001, 002, 003 **e a 004** aplicadas (a 005 aborta sem alterar nada se faltar alguma).
+Não altera nenhum objeto da 001–004; acrescenta um trigger em `orders` (ver *Pedido PAID*).
+
+1. SQL Editor → nova query → colar `migrations/005_payments.sql` → **Run**
+   ("Success. No rows returned"). `Migration 005 abortada: …` = nada foi alterado.
+2. Nova query → colar `tests/005_payments.test.sql` → **Run** → último resultado
+   `PASS — 005_payments …`. A transação é revertida: não ficam contas, movimentos nem pedidos de teste.
+   Os testes 001–004 continuam a passar depois da 005.
+3. Verificar as tabelas (RLS ativo e só policies de leitura):
+
+   ```sql
+   select c.relname, c.relrowsecurity
+     from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relname like 'payment\_%';      -- 4 linhas, todas true
+   select tablename, policyname, cmd, roles
+     from pg_policies where tablename like 'payment\_%';             -- 4 policies SELECT para authenticated
+   ```
+
+### Modelo — três coisas diferentes, nunca misturadas
+
+| Tabela | O que é | Quem escreve |
+|---|---|---|
+| `payment_accounts` | Onde a empresa recebe (M-Pesa / e-Mola): fornecedor explícito, titular, identificador (telefone em E.164 ou código de agente/comerciante). **Nunca** PIN, password, tokens ou chaves (a metadata é validada). | owner / admin (auditado) |
+| `payment_events` | **Evento real da carteira** — o dinheiro que entrou de facto. Imutável (UPDATE/DELETE/TRUNCATE bloqueados para todos). Correções = novo evento. Único por fornecedor + conta + ID da transação (idempotente). | owner / admin (`record_payment_event`, auditado); no futuro, leitor SMS / API via `service_role` |
+| `payment_proofs` | **Comprovativo do cliente** — o que o cliente diz. Nunca confirma nada sozinho. `extracted_data` (IA/parser) é guardado mas a reconciliação **nunca o lê**. A evidência é imutável; o estado só é mudado pelo servidor. | qualquer membro (`submit_payment_proof`) |
+| `payment_matches` | **Resultado da reconciliação** — cada decisão (append-only), com os critérios que passaram (`match_methods`) e o resultado de cada regra (`details.checks`). | só o servidor |
+
+Estados (comprovativo e decisão): `UNMATCHED`, `PENDING_REVIEW`, `MATCHED`, `CONFIRMED`,
+`REJECTED`, `DUPLICATE`, `EXPIRED` (os quatro últimos são finais para um comprovativo).
+
+### Reconciliação determinística (sem IA)
+
+Um pagamento só é `CONFIRMED` quando um **evento real** corresponde ao pedido em **todas** as regras:
+
+1. **ID da transação** — quando o cliente o indicou: igual ao do evento (normalizado: maiúsculas, sem espaços).
+2. **Fornecedor** — M-Pesa e e-Mola nunca se misturam. O fornecedor nunca é deduzido do formato do ID;
+   o mesmo ID em fornecedores (ou contas) diferentes são eventos diferentes.
+3. **Valor exato** — o valor do evento igual ao `product_price_snapshot` do pedido, na mesma moeda.
+   500 para 500 confirma; 300 (`UNDERPAID`) e 700 (`OVERPAID`) vão para revisão. Não há tolerância nem
+   política de excesso.
+4. **Conta** — a conta que recebeu está `ACTIVE` e é a que o cliente indicou (se indicou).
+5. **Remetente** — compatível com o do comprovativo; números mascarados (`84****001`) comparam só os
+   dígitos visíveis (mín. 3). Sem evidência suficiente = não conta a favor nem contra.
+6. **Janela de tempo** — por fornecedor, configurável em `tenant_settings.payments`
+   (por omissão 60 min antes e 2880 min = 48 h depois da criação do pedido; limite 7 dias):
+
+   ```sql
+   update public.tenant_settings
+      set payments = payments || '{"match_window": {"MPESA": {"before_minutes": 60, "after_minutes": 2880},
+                                                    "EMOLA": {"before_minutes": 60, "after_minutes": 2880}}}'
+    where tenant_id = '<TENANT_ID>';
+   ```
+
+Qualquer regra falhada → `PENDING_REVIEW` com o motivo (`UNDERPAID`, `SENDER_MISMATCH`,
+`OUTSIDE_TIME_WINDOW`…). Um evento já usado → `DUPLICATE` (`EVENT_ALREADY_USED`).
+
+| Caso | Resultado |
+|---|---|
+| Comprovativo sem evento | `UNMATCHED` (`NO_EVENT_YET`); pedido em `VERIFYING`; **nunca** confirmado |
+| Comprovativo + evento compatível | `CONFIRMED`; pedido → `PAID` |
+| Evento sem comprovativo | Pedidos em aberto com o valor exato dentro da janela são candidatos. Confirmação automática **só** com um único candidato e o remetente completo igual ao telefone do cliente; caso contrário, `PENDING_REVIEW` (`MULTIPLE_CANDIDATES` / `SENDER_NOT_VERIFIED`) para decisão humana |
+| Comprovativo chega depois do evento | O comprovativo decide (ID + todas as regras) |
+| Mesmo evento para dois pedidos | O segundo é `DUPLICATE` — garantido por índice único (também em concorrência) |
+
+### Pedido PAID
+
+O pedido só passa a `PAID` através de uma decisão `CONFIRMED`, pela máquina de estados da 004
+(`PENDING → AWAITING_PAYMENT → PAID` ou `VERIFYING → PAID`). O novo trigger
+`orders_require_payment_confirmation` recusa `PAID` sem uma correspondência confirmada para os papéis
+da API (`authenticated`, `anon` **e** `service_role`). Índices únicos parciais garantem no máximo uma
+confirmação por evento, por pedido e por comprovativo.
+
+### Comandos (únicas escritas pela API)
+
+| RPC | Quem | Efeito |
+|---|---|---|
+| `create_payment_account(tenant_id, provider, account_name, account_identifier)` | owner / admin, empresa ativa | Conta `ACTIVE` (auditado) |
+| `update_payment_account(account_id, account_name?, status?)` | idem | Nome / `ACTIVE`–`INACTIVE` (fornecedor e identificador são fixos) |
+| `record_payment_event(account_id, transaction_id, amount, occurred_at?, currency?, sender?, recipient?, raw_message?)` | idem | Regista um movimento real (idempotente; mesmo ID com dados diferentes = erro), audita e reconcilia |
+| `submit_payment_proof(order_id?, provider?, transaction_id?, amount?, currency?, sender?, recipient?, raw_message?, extracted_data?, tenant_id?)` | qualquer membro | Guarda o comprovativo e reconcilia |
+| `reconcile_payment_proof(proof_id)` | qualquer membro | Repete a reconciliação (idempotente) |
+| `reject_payment_proof(proof_id, reason)` | owner / admin | `REJECTED` (final, auditado); o pedido volta a `AWAITING_PAYMENT` |
+| `confirm_payment_manually(order_id, event_id, proof_id?, note?)` | owner / admin | Decisão humana sobre uma revisão, sempre com um **evento real**. Pode aceitar uma dúvida de janela ou remetente verificada pela pessoa; nunca valor/moeda errados, conta inativa, evento já usado ou pedido não pagável. Auditado (`payment.confirmed_manually`) |
+
+`anon` sem acesso; tenant suspenso só lê; platform admins **não** ganham acesso às finanças das
+empresas (nem por RLS nem por RPC). Decisões administrativas vão para `audit_logs`; o histórico
+financeiro fica nas tabelas de pagamentos (sem copiar mensagens, remetentes ou IDs para a auditoria).
+
+### Testes manuais (Fase 6)
+
+O teste seguro é o passo 2 acima (dados sintéticos, transação revertida). Para testar com dados
+**reais** (ficam guardados e auditados — use só a conta e um pagamento verdadeiros da empresa):
+
+1. Obter o utilizador e a empresa (como `postgres`, no SQL Editor):
+
+   ```sql
+   select u.id as user_id, tu.tenant_id, tu.role
+     from auth.users u join public.tenant_users tu on tu.user_id = u.id
+    where u.email = '<o-seu-email>';
+   ```
+
+2. **Conta** — registar a conta M-Pesa real da empresa (atuando como o owner; `auth.uid()` tem de
+   ser o utilizador para a autorização e a auditoria):
+
+   ```sql
+   begin;
+   set local role authenticated;
+   select set_config('request.jwt.claims', '{"sub": "<USER_ID>", "role": "authenticated"}', true);
+   select * from public.create_payment_account('<TENANT_ID>', 'MPESA', '<Nome do titular>', '<84 xxx xxxx>');
+   commit;
+   ```
+
+   Verificar: `select id, provider, account_identifier, status from public.payment_accounts where tenant_id = '<TENANT_ID>';`
+   — no app, **Definições → Pagamentos** mostra a conta.
+
+3. **Pedido + comprovativo** — no app, criar um pedido (**Pedidos → +**) e pagá-lo de verdade a partir
+   de outro telemóvel. Com o ID da transação do SMS do **cliente**:
+
+   ```sql
+   begin;
+   set local role authenticated;
+   select set_config('request.jwt.claims', '{"sub": "<USER_ID>", "role": "authenticated"}', true);
+   select status, status_reason from public.submit_payment_proof(
+     p_order_id => '<ORDER_ID>', p_provider => 'MPESA', p_transaction_id => '<ID_DA_TRANSACAO>', p_amount => <VALOR>);
+   commit;
+   ```
+
+   Resultado esperado: `UNMATCHED / NO_EVENT_YET`; o pedido fica *Em verificação*; em **Pagamentos**
+   aparece como *Pendente* (nunca *Confirmado*).
+
+4. **Evento real** — com os dados do SMS de **receção** da carteira da empresa:
+
+   ```sql
+   begin;
+   set local role authenticated;
+   select set_config('request.jwt.claims', '{"sub": "<USER_ID>", "role": "authenticated"}', true);
+   select id, provider, transaction_id, amount from public.record_payment_event(
+     p_payment_account_id => '<ACCOUNT_ID>', p_transaction_id => '<ID_DA_TRANSACAO>', p_amount => <VALOR>,
+     p_occurred_at => '<AAAA-MM-DD HH:MM+02>', p_sender_identifier => '<remetente como aparece no SMS>');
+   commit;
+   ```
+
+5. **Reconciliação** — verificar:
+
+   ```sql
+   select status from public.orders where id = '<ORDER_ID>';                                -- PAID
+   select status, status_reason from public.payment_proofs where order_id = '<ORDER_ID>';  -- CONFIRMED
+   select match_status, match_methods, reason, details -> 'checks'
+     from public.payment_matches where order_id = '<ORDER_ID>';
+   select action, created_at from public.audit_logs
+    where tenant_id = '<TENANT_ID>' and action like 'payment%' order by created_at desc;
+   ```
+
+   Repetir o passo 4 devolve o mesmo evento (idempotente). Um valor diferente do pedido deixa o
+   comprovativo em `PENDING_REVIEW` (`UNDERPAID` / `OVERPAID`) e o pedido não fica pago.
 
 ## Ligar o app ao Supabase
 
@@ -388,6 +548,9 @@ autorização    platform_admins (ACTIVE) → papel de plataforma → permissõe
   `SECURITY DEFINER` em `private` (autoriza explicitamente: membro do tenant + tenant ativo) e
   wrapper `SECURITY INVOKER` em `public`; triggers impõem as invariantes para todos os papéis
   (padrão da 004).
+- Dados financeiros (005): factos imutáveis (`payment_events`), decisões append-only
+  (`payment_matches`), metadata validada contra credenciais (`private.payment_metadata_is_safe`)
+  e nenhuma decisão baseada em IA.
 - Desde a 003, as policies de escrita de tabelas de tenant exigem também
   `private.tenant_is_active(tenant_id)` (tenant suspenso = só leitura). As tabelas da 001
   ainda não têm esta regra (não foram alteradas).

@@ -5,5 +5,6 @@ export * from './useNow';
 export * from './useOrders';
 export * from './usePayments';
 export * from './usePlatformAdmin';
+export * from './useReconciliation';
 export * from './useRealtimeSync';
 export * from './useConnectivity';

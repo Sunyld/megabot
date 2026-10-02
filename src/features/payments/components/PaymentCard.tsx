@@ -10,6 +10,7 @@ import type { Payment } from '@/types';
 import { formatMoney, formatRelative } from '@/utils/format';
 
 export function PaymentMethodBadge({ method }: { method: Payment['method'] }) {
+  if (!method) return null;
   const meta = paymentMethodMeta[method];
   return <Badge label={meta.label} tone={meta.tone} variant="outline" size="sm" />;
 }
@@ -23,10 +24,10 @@ export function PaymentCard({ payment, now }: { payment: Payment; now?: number }
       padding={14}
       style={styles.card}
       onPress={() => router.push({ pathname: '/payments/[id]', params: { id: payment.id } })}
-      accessibilityLabel={`Pagamento ${payment.transactionId}, ${formatMoney(payment.amount)}, ${status.label}`}>
+      accessibilityLabel={`Pagamento ${payment.transactionId ?? 'sem ID de transação'}, ${formatMoney(payment.amount)}, ${status.label}`}>
       <View style={styles.row}>
-        <Text variant="mono" numberOfLines={1} style={styles.flex}>
-          {payment.transactionId}
+        <Text variant="mono" color={payment.transactionId ? undefined : 'muted'} numberOfLines={1} style={styles.flex}>
+          {payment.transactionId ?? 'Sem ID de transação'}
         </Text>
         <StatusBadge meta={status} size="sm" />
       </View>

@@ -6,12 +6,22 @@ import { mockAutomationService, mockNotificationsService, mockWhatsAppService } 
 import { mockOrdersService } from './orders';
 import { mockPaymentsService } from './payments';
 import { mockPlatformAdminService } from './platformAdmin';
+import {
+  mockPaymentAccountsService,
+  mockPaymentEventsService,
+  mockPaymentMatchesService,
+  mockPaymentProofsService,
+} from './reconciliation';
 
 export const mockServices: Services = {
   auth: mockAuthService,
   dashboard: mockDashboardService,
   orders: mockOrdersService,
   payments: mockPaymentsService,
+  paymentAccounts: mockPaymentAccountsService,
+  paymentEvents: mockPaymentEventsService,
+  paymentProofs: mockPaymentProofsService,
+  paymentMatches: mockPaymentMatchesService,
   products: mockProductsService,
   devices: mockDevicesService,
   sims: mockSimsService,

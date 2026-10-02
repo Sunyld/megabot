@@ -9,6 +9,8 @@ import { createSupabaseAuthService } from './auth';
 import { createSupabaseGateway } from './gateway';
 import { createSupabaseOrdersService } from './orders';
 import { createOrdersGateway } from './ordersGateway';
+import { createSupabasePaymentServices } from './payments';
+import { createPaymentsGateway } from './paymentsGateway';
 import { createSupabasePlatformAdminService } from './platformAdmin';
 import { createPlatformAdminGateway } from './platformAdminGateway';
 import { createSupabaseProductsService } from './products';
@@ -20,7 +22,8 @@ import { createProductsGateway } from './productsGateway';
  * the app stays fully usable during the progressive mock → Supabase move.
  *
  * Migrated: auth + app context (001/002), platform administration (002),
- * products with per-product USSD flows (003), orders (004).
+ * products with per-product USSD flows (003), orders (004), payments —
+ * accounts, real events, customer proofs and deterministic reconciliation (005).
  */
 export function createSupabaseServices(fallback: Services): Services {
   // Domains still on the fallback show the real tenant's (empty) data, never demo fixtures.
@@ -42,6 +45,7 @@ export function createSupabaseServices(fallback: Services): Services {
     }),
     products: createSupabaseProductsService(createProductsGateway(getSupabaseClient)),
     orders: createSupabaseOrdersService(createOrdersGateway(getSupabaseClient)),
+    ...createSupabasePaymentServices(createPaymentsGateway(getSupabaseClient)),
     platformAdmin: createSupabasePlatformAdminService(createPlatformAdminGateway(getSupabaseClient)),
   };
 }
