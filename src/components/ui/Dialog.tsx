@@ -4,7 +4,7 @@ import Animated, { FadeIn, FadeOut, ZoomIn } from 'react-native-reanimated';
 
 import { createStyles, type IconName, type Tone, useTheme } from '@/theme';
 
-import { usePresence } from './BottomSheet';
+import { usePresence } from './usePresence';
 import { Button } from './Button';
 import { Icon } from './Icon';
 import { Text } from './Text';

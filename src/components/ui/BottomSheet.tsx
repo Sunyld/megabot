@@ -1,4 +1,4 @@
-import { useEffect, useState, type PropsWithChildren, type ReactNode } from 'react';
+import type { PropsWithChildren, ReactNode } from 'react';
 import { KeyboardAvoidingView, Modal, Pressable, ScrollView, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,30 +7,7 @@ import { createStyles } from '@/theme';
 
 import { IconButton } from './IconButton';
 import { Text } from './Text';
-
-const EXIT_MS = 240;
-
-/**
- * Keeps an overlay mounted while its exit animation plays.
- * Returns whether the native Modal should currently be visible.
- */
-export function usePresence(visible: boolean) {
-  const [mounted, setMounted] = useState(visible);
-  const [prevVisible, setPrevVisible] = useState(visible);
-
-  if (visible !== prevVisible) {
-    setPrevVisible(visible);
-    if (visible) setMounted(true);
-  }
-
-  useEffect(() => {
-    if (visible) return;
-    const id = setTimeout(() => setMounted(false), EXIT_MS);
-    return () => clearTimeout(id);
-  }, [visible]);
-
-  return mounted;
-}
+import { EXIT_MS, usePresence } from './usePresence';
 
 export type BottomSheetProps = PropsWithChildren<{
   visible: boolean;
