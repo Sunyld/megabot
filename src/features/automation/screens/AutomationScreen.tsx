@@ -5,6 +5,7 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { StackHeader } from '@/components/layout/Headers';
 import { Screen } from '@/components/layout/Screen';
 import { Badge, StatusBadge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Icon } from '@/components/ui/Icon';
 import { ListItem } from '@/components/ui/ListItem';
@@ -18,7 +19,8 @@ import { Switch } from '@/components/ui/Switch';
 import { Text } from '@/components/ui/Text';
 import { toast } from '@/components/ui/Toast';
 import { taskStatusMeta } from '@/constants/labels';
-import { useAutomationSettings, useAutomationStats, useNow, useTasks, useUpdateAutomationSettings } from '@/hooks';
+import { useCurrentSession } from '@/features/auth/session';
+import { useAutomationSettings, useAutomationStats, useDispatchActivationTasks, useNow, useTasks, useUpdateAutomationSettings } from '@/hooks';
 import { errorMessage } from '@/services';
 import { createStyles, type IconName, useTheme } from '@/theme';
 import type { AutomationSettings, TaskStatus } from '@/types';
@@ -51,6 +53,22 @@ export function AutomationScreen() {
   const stats = useAutomationStats();
   const tasks = useTasks();
   const update = useUpdateAutomationSettings();
+  const { user } = useCurrentSession();
+  const dispatch = useDispatchActivationTasks();
+  // UI only: the database restricts the manual dispatcher run to owner / admin.
+  const canDispatch = user.role === 'owner' || user.role === 'admin';
+
+  const runDispatch = async () => {
+    try {
+      const assigned = await dispatch.mutateAsync();
+      toast.success(
+        assigned ? `${assigned} tarefa(s) atribuída(s)` : 'Nada para distribuir',
+        assigned ? 'Os telemóveis recebem-nas no próximo pedido de trabalho.' : 'Sem tarefas na fila ou sem telemóvel online com SIM compatível.'
+      );
+    } catch (e) {
+      toast.error('Não foi possível distribuir', errorMessage(e));
+    }
+  };
 
   const change = async (patch: Partial<AutomationSettings>) => {
     try {
@@ -182,7 +200,13 @@ export function AutomationScreen() {
         </Card>
       </Section>
 
-      <Section title="Tarefas recentes">
+      <Section
+        title="Tarefas recentes"
+        right={
+          canDispatch ? (
+            <Button label="Distribuir" icon="dispatcher" variant="secondary" size="sm" loading={dispatch.isPending} onPress={() => void runDispatch()} />
+          ) : undefined
+        }>
         <QueryView
           query={tasks}
           loading={<Skeleton height={240} radius={16} />}
@@ -195,17 +219,18 @@ export function AutomationScreen() {
           {(list) => (
             <ListGroup>
               {list.slice(0, 8).map((task, index, shown) => {
-                const failover = task.attempts.some((a) => a.result.startsWith('skipped'));
+                const failover =
+                  task.attempts.some((a) => a.result.startsWith('skipped')) || new Set(task.attempts.map((a) => a.simId)).size > 1;
                 return (
                   <ListItem
                     key={task.id}
                     icon="bolt"
                     iconTone={taskStatusMeta[task.status].tone}
                     title={`${task.code} · ${task.productName}`}
-                    subtitle={`${formatPhone(task.destination)} · ${formatRelative(task.createdAt, now)}${failover ? ' · failover' : ''}`}
+                    subtitle={`${task.destination ? formatPhone(task.destination) : '—'} · ${formatRelative(task.createdAt, now)}${failover ? ' · failover' : ''}`}
                     trailing={<StatusBadge meta={taskStatusMeta[task.status]} size="sm" />}
                     divider={index < shown.length - 1}
-                    onPress={() => router.push({ pathname: '/orders/[id]', params: { id: task.orderId } })}
+                    onPress={() => router.push({ pathname: '/tasks/[id]', params: { id: task.id } })}
                   />
                 );
               })}

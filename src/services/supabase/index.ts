@@ -5,6 +5,8 @@ import { readSupabaseConfig } from '@/lib/supabase/config';
 
 import { stopServingDemoData } from '../mock/db';
 import type { Services } from '../types';
+import { createSupabaseActivationServices } from './activation';
+import { createActivationGateway } from './activationGateway';
 import { createSupabaseAuthService } from './auth';
 import { createSupabaseGateway } from './gateway';
 import { createSupabaseOrdersService } from './orders';
@@ -23,7 +25,8 @@ import { createProductsGateway } from './productsGateway';
  *
  * Migrated: auth + app context (001/002), platform administration (002),
  * products with per-product USSD flows (003), orders (004), payments —
- * accounts, real events, customer proofs and deterministic reconciliation (005).
+ * accounts, real events, customer proofs and deterministic reconciliation (005),
+ * activation engine — devices, SIMs, activation tasks and the worker protocol (006).
  */
 export function createSupabaseServices(fallback: Services): Services {
   // Domains still on the fallback show the real tenant's (empty) data, never demo fixtures.
@@ -37,6 +40,8 @@ export function createSupabaseServices(fallback: Services): Services {
     console.error(`[MegaBot] ${error instanceof Error ? error.message : String(error)}`);
   }
 
+  const activationGateway = createActivationGateway(getSupabaseClient);
+
   return {
     ...fallback,
     auth: createSupabaseAuthService(createSupabaseGateway(getSupabaseClient), {
@@ -46,6 +51,7 @@ export function createSupabaseServices(fallback: Services): Services {
     products: createSupabaseProductsService(createProductsGateway(getSupabaseClient)),
     orders: createSupabaseOrdersService(createOrdersGateway(getSupabaseClient)),
     ...createSupabasePaymentServices(createPaymentsGateway(getSupabaseClient)),
-    platformAdmin: createSupabasePlatformAdminService(createPlatformAdminGateway(getSupabaseClient)),
+    ...createSupabaseActivationServices(activationGateway, fallback.automation),
+    platformAdmin: createSupabasePlatformAdminService(createPlatformAdminGateway(getSupabaseClient), activationGateway),
   };
 }

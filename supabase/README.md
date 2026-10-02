@@ -16,6 +16,8 @@ aborta sem alterar nada se encontrar objetos já existentes.
 | `tests/004_orders.test.sql` | Verificação da 004 (transação revertida) |
 | `migrations/005_payments.sql` | `payment_accounts`, `payment_events` (imutáveis), `payment_proofs`, `payment_matches` e reconciliação determinística que leva o pedido a `PAID` |
 | `tests/005_payments.test.sql` | Verificação da 005 (transação revertida) |
+| `migrations/006_devices_activation.sql` | `devices`, `device_credentials` (só hashes), `device_sims`, `activation_tasks`, `activation_task_attempts` (imutáveis), `activation_task_events`; dispatcher e protocolo do worker Android. **Ainda não aplicada** |
+| `tests/006_devices_activation.test.sql` | Verificação da 006 (transação revertida) |
 
 ## Aplicar a 001
 
@@ -419,6 +421,110 @@ O teste seguro é o passo 2 acima (dados sintéticos, transação revertida). Pa
 
    Repetir o passo 4 devolve o mesmo evento (idempotente). Um valor diferente do pedido deixa o
    comprovativo em `PENDING_REVIEW` (`UNDERPAID` / `OVERPAID`) e o pedido não fica pago.
+
+## Aplicar a 006 (Dispositivos e motor de ativação)
+
+> **Estado:** a 006 **ainda não foi aplicada** no projeto Supabase. Aplicação manual, como as anteriores.
+> Desenho completo: [`docs/phase7/PHASE7_ACTIVATION_ENGINE.md`](../docs/phase7/PHASE7_ACTIVATION_ENGINE.md).
+
+Requer a 001–005 aplicadas (aborta sem alterar nada se faltar alguma ou se algum objeto da 006 já
+existir). Não altera nenhum objeto da 001–005; acrescenta dois triggers em `orders`:
+`orders_create_activation_task` (cria a tarefa quando o pedido passa a `PAID`) e
+`orders_require_activation_success` (recusa `COMPLETED` sem uma ativação `SUCCESS`). Pedidos já `PAID`
+no momento da aplicação recebem a sua tarefa `QUEUED`.
+
+1. SQL Editor → nova query → colar `migrations/006_devices_activation.sql` → **Run**
+   ("Success. No rows returned"). `Migration 006 abortada: …` = nada foi alterado (envie a mensagem).
+2. Nova query → colar `tests/006_devices_activation.test.sql` → **Run** → último resultado
+   `PASS — 006_devices_activation …`. A transação é revertida: não ficam dispositivos, SIMs, tarefas nem
+   pedidos de teste. Os testes 001–005 continuam a passar depois da 006.
+3. Verificar as tabelas (RLS ativo; só policies de leitura; `device_credentials` sem nenhuma policy):
+
+   ```sql
+   select c.relname, c.relrowsecurity
+     from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname in ('devices', 'device_credentials', 'device_sims', 'activation_tasks',
+                        'activation_task_attempts', 'activation_task_events');   -- 6 linhas, todas true
+   select tablename, policyname, cmd, roles
+     from pg_policies
+    where tablename in ('devices', 'device_credentials', 'device_sims', 'activation_tasks',
+                        'activation_task_attempts', 'activation_task_events');   -- 5 policies SELECT (nenhuma em device_credentials)
+   ```
+
+### Modelo
+
+| Tabela | O que é |
+|---|---|
+| `devices` | Telemóveis Android (workers) da empresa: `UNREGISTERED` → `ACTIVE` ↔ `DISABLED`. *Online* deriva de `last_seen_at` (relógio do servidor) e de `tenant_settings.automation.heartbeat_timeout_seconds` (120 s por omissão) |
+| `device_credentials` | Só o SHA-256 do código de emparelhamento e do token do dispositivo. Sem grants nem policies |
+| `device_sims` | SIMs por slot (único por dispositivo), operadora explícita (`vodacom` / `movitel` / `tmcel`), número opcional. Nunca PIN, PUK ou OTP |
+| `activation_tasks` | Uma por pedido `PAID` (único). Snapshot do fluxo USSD do produto; estados `QUEUED`, `ASSIGNED`, `EXECUTING`, `SUBMITTED`, `VERIFYING`, `SUCCESS`, `FAILED`, `UNKNOWN` |
+| `activation_task_attempts` | Cada tentativa (worker, sistema ou pessoa), imutável |
+| `activation_task_events` | Histórico das transições, append-only |
+
+`UNKNOWN` = o USSD pode ter sido executado mas nada prova o resultado: **nunca** é repetido
+automaticamente; um owner/admin decide (`resolve_activation_task`). Pedido: `SUCCESS` → `COMPLETED`,
+`FAILED` → `FAILED`, `UNKNOWN` fica em revisão (`ACTIVATING`).
+
+Tempos configuráveis por empresa (segundos; fora dos limites usa-se o valor por omissão):
+
+```sql
+update public.tenant_settings
+   set automation = automation || '{"heartbeat_timeout_seconds": 120,
+                                    "assignment_timeout_seconds": 300,
+                                    "execution_timeout_seconds": 600}'
+ where tenant_id = '<TENANT_ID>';
+```
+
+### Comandos (únicas escritas pela API)
+
+| RPC | Quem | Efeito |
+|---|---|---|
+| `create_device(tenant_id, device_name)` | owner / admin, empresa ativa | Dispositivo `UNREGISTERED` + código de emparelhamento (15 min, uso único) |
+| `create_device_pairing_code(device_id)` | idem | Novo código (re-emparelhar; o token anterior deixa de valer quando o novo é usado) |
+| `update_device(device_id, device_name?, status?)` | idem | Nome / `ACTIVE`–`DISABLED` (desativar devolve à fila as tarefas atribuídas) |
+| `register_device_sim(device_id, slot_index, operator, phone_number?)` | idem | SIM `ACTIVE` no slot |
+| `update_device_sim(sim_id, operator?, phone_number?, status?)` | idem | Dados / estado do SIM (confirmar um SIM trocado) |
+| `dispatch_activation_tasks(tenant_id)` | idem | Corre o dispatcher (também corre a cada heartbeat) |
+| `retry_activation_task(task_id, note?)` | idem | Só tarefas `FAILED` → `QUEUED` (auditado) |
+| `resolve_activation_task(task_id, outcome, note)` | idem | Só tarefas `UNKNOWN` → `SUCCESS` / `FAILED`, nota obrigatória (auditado) |
+| `register_device(pairing_code, device_identifier, platform, app_version)` | membro com sessão, no telemóvel | Consome o código; devolve o token do dispositivo **uma vez** |
+| `device_heartbeat`, `worker_fetch_task`, `worker_start_task`, `worker_report_progress`, `worker_report_result` | membro + token do dispositivo | Protocolo `megabot.activation.v1` (o servidor reavalia cada resultado com os textos do produto) |
+| `platform_list_tenant_devices`, `platform_list_tenant_activation_tasks` | platform admin (`tenants.read`) | Só leitura |
+
+`anon` sem acesso; empresa suspensa só lê. O `service_role` não tem INSERT/UPDATE/DELETE nas tabelas
+da 006 e não consegue levar um pedido a `COMPLETED` sem ativação; pode correr
+`private.dispatch_activation_tasks` / `private.expire_stale_activation_tasks` (para um futuro cron).
+
+### Testes manuais (Fase 7)
+
+O teste seguro é o passo 2 acima. Com dados **reais** (ficam guardados e auditados):
+
+1. No app (owner/admin): **Dispositivos → +** → nome → aparece o código `XXXX-XXXX`.
+2. No telemóvel Android, com sessão iniciada na mesma empresa: **Mais → Modo worker** → escrever o
+   código → *Emparelhar*. O dispositivo passa a *Ativo*.
+3. **Dispositivos → (dispositivo) → Registar SIM** → slot, operadora e número.
+4. Verificar:
+
+   ```sql
+   select id, device_name, status, last_seen_at, capabilities from public.devices where tenant_id = '<TENANT_ID>';
+   select device_id, slot_index, operator, status from public.device_sims where tenant_id = '<TENANT_ID>';
+   select action, created_at from public.audit_logs
+    where tenant_id = '<TENANT_ID>' and (action like 'device.%' or action like 'sim.%') order by created_at desc;
+   ```
+
+5. Um pedido que chega a `PAID` (fluxo da Fase 6) cria a tarefa — **Automação** mostra-a *Na fila*:
+
+   ```sql
+   select status, device_id, sim_id, attempt_count, result_code from public.activation_tasks where order_id = '<ORDER_ID>';
+   select from_status, to_status, event_type, created_at from public.activation_task_events
+    where task_id = '<TASK_ID>' order by created_at;
+   ```
+
+> **Sem o módulo nativo USSD** (ainda não existe; ver o documento da Fase 7) o worker declara
+> `ussd: false` e o dispatcher **não lhe atribui** tarefas: ficam `QUEUED`. Isto é o comportamento
+> correto — nenhuma ativação é simulada no modo Supabase.
 
 ## Ligar o app ao Supabase
 

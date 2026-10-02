@@ -5,67 +5,21 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 
 import { ScreenHeader } from '@/components/layout/Headers';
 import { Screen } from '@/components/layout/Screen';
-import { BottomSheet } from '@/components/ui/BottomSheet';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import { Icon } from '@/components/ui/Icon';
 import { IconButton } from '@/components/ui/IconButton';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { QueryView } from '@/components/ui/QueryView';
 import { SkeletonList } from '@/components/ui/Skeleton';
 import { EmptyState } from '@/components/ui/States';
 import { Text } from '@/components/ui/Text';
+import { useCurrentSession } from '@/features/auth/session';
 import { useDevices, useDevicesSummary, useNow, useSims } from '@/hooks';
-import { createStyles, useTheme } from '@/theme';
+import { createStyles } from '@/theme';
 
 import { DeviceCard } from '../components/DeviceCard';
+import { AddDeviceSheet } from '../components/DeviceSheets';
 import { usageTone } from '../components/SimCard';
-
-function PairingSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
-  const { colors } = useTheme();
-  const styles = useStyles();
-  const steps = [
-    'Instale a app MegaBot Worker no telemóvel Android.',
-    'Abra a app e toque em “Emparelhar com vendedor”.',
-    'Leia o código QR ou introduza o código abaixo.',
-  ];
-  return (
-    <BottomSheet
-      visible={visible}
-      onClose={onClose}
-      title="Adicionar dispositivo"
-      subtitle="Cada Android ligado aumenta a capacidade e a resiliência."
-      footer={<Button label="Concluído" variant="secondary" fullWidth onPress={onClose} />}>
-      <View style={styles.qr}>
-        <Icon name="qr" size={120} color={colors.text} />
-        <Text variant="title2" style={styles.code}>
-          MB-4821-KX
-        </Text>
-        <Text variant="caption" color="muted">
-          Código válido durante 10 minutos
-        </Text>
-      </View>
-      {steps.map((step, index) => (
-        <View key={step} style={styles.step}>
-          <View style={styles.stepNumber}>
-            <Text variant="captionStrong" color="brand">
-              {index + 1}
-            </Text>
-          </View>
-          <Text variant="callout" style={styles.flex}>
-            {step}
-          </Text>
-        </View>
-      ))}
-      <View style={styles.note}>
-        <Icon name="info" size={16} color={colors.tones.info.fg} />
-        <Text variant="caption" color="info" style={styles.flex}>
-          O emparelhamento real chega com o Android Device Worker (SMS, SIM e USSD).
-        </Text>
-      </View>
-    </BottomSheet>
-  );
-}
 
 export function DevicesScreen() {
   const styles = useStyles();
@@ -73,7 +27,10 @@ export function DevicesScreen() {
   const devices = useDevices();
   const summary = useDevicesSummary();
   const sims = useSims();
+  const { user } = useCurrentSession();
   const [pairing, setPairing] = useState(false);
+  // UI only: the database restricts device management to owner / admin.
+  const canManage = user.role === 'owner' || user.role === 'admin';
 
   const refresh = () => {
     void devices.refetch();
@@ -92,7 +49,11 @@ export function DevicesScreen() {
         <ScreenHeader
           title="Dispositivos"
           subtitle={s ? `${s.online} / ${s.total} online` : 'A carregar…'}
-          right={<IconButton icon="add" variant="surface" accessibilityLabel="Adicionar dispositivo" onPress={() => setPairing(true)} />}
+          right={
+            canManage ? (
+              <IconButton icon="add" variant="surface" accessibilityLabel="Adicionar dispositivo" onPress={() => setPairing(true)} />
+            ) : undefined
+          }
         />
       }>
       {s && (
@@ -101,15 +62,15 @@ export function DevicesScreen() {
             <View style={styles.capacityHead}>
               <View style={styles.flex}>
                 <Text variant="callout" color="secondary">
-                  Capacidade de ativação hoje
+                  {s.capacityTotal !== null ? 'Capacidade de ativação hoje' : 'Ativações confirmadas hoje'}
                 </Text>
-                <Text variant="stat">{`${s.capacityUsed} / ${s.capacityTotal}`}</Text>
+                <Text variant="stat">{s.capacityTotal !== null ? `${s.capacityUsed} / ${s.capacityTotal}` : `${s.capacityUsed}`}</Text>
               </View>
               <Button label="Gerir SIMs" icon="sim" variant="secondary" size="sm" onPress={() => router.push('/sims')} />
             </View>
-            <ProgressBar value={capacity} tone={usageTone(capacity)} height={8} />
+            {s.capacityTotal !== null && <ProgressBar value={capacity} tone={usageTone(capacity)} height={8} />}
             <Text variant="caption" color="muted">
-              {`${s.simsAvailable} de ${s.simsTotal} SIMs disponíveis para ativações · failover ativo`}
+              {`${s.simsAvailable} de ${s.simsTotal} SIMs disponíveis para ativações`}
             </Text>
           </Card>
         </Animated.View>
@@ -124,7 +85,7 @@ export function DevicesScreen() {
             icon="devices"
             title="Nenhum dispositivo"
             description="Ligue um telemóvel Android para ler pagamentos e ativar pacotes automaticamente."
-            action={{ label: 'Adicionar dispositivo', icon: 'add', onPress: () => setPairing(true) }}
+            action={canManage ? { label: 'Adicionar dispositivo', icon: 'add', onPress: () => setPairing(true) } : undefined}
           />
         }>
         {(list) => (
@@ -138,7 +99,7 @@ export function DevicesScreen() {
         )}
       </QueryView>
 
-      <PairingSheet visible={pairing} onClose={() => setPairing(false)} />
+      <AddDeviceSheet visible={pairing} onClose={() => setPairing(false)} />
     </Screen>
   );
 }
@@ -157,38 +118,5 @@ const useStyles = createStyles((t) => ({
   },
   list: {
     gap: t.spacing.md,
-  },
-  qr: {
-    alignItems: 'center',
-    gap: t.spacing.xs,
-    paddingVertical: t.spacing.xl,
-    borderRadius: t.radius.lg,
-    borderWidth: 1.5,
-    borderStyle: 'dashed',
-    borderColor: t.colors.borderStrong,
-  },
-  code: {
-    letterSpacing: 2,
-    marginTop: t.spacing.sm,
-  },
-  step: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: t.spacing.md,
-  },
-  stepNumber: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: t.colors.tones.brand.bg,
-  },
-  note: {
-    flexDirection: 'row',
-    gap: t.spacing.sm,
-    padding: t.spacing.md,
-    borderRadius: t.radius.md,
-    backgroundColor: t.colors.tones.info.bg,
   },
 }));

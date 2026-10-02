@@ -21,14 +21,16 @@ export type AttemptResult =
   | 'running'
   | 'success'
   | 'failed'
-  | 'timeout';
+  | 'timeout'
+  /** Submitted, result not proven (UNKNOWN). */
+  | 'unknown';
 
 export type TaskAttempt = {
   id: ID;
   deviceId: ID;
   deviceName: string;
   simId: ID;
-  simSlot: 1 | 2;
+  simSlot: number;
   result: AttemptResult;
   reason?: string;
   at: ISODateString;
@@ -48,6 +50,14 @@ export type ActivationTask = TenantScoped & {
   operatorResponse?: string;
   createdAt: ISODateString;
   updatedAt: ISODateString;
+  /** Engine details (migration 006) — filled when known. */
+  deviceId?: ID | null;
+  deviceName?: string | null;
+  simSlot?: number | null;
+  attemptCount?: number;
+  maxAttempts?: number;
+  resultCode?: string | null;
+  failureReason?: string | null;
 };
 
 export type AutomationSettings = {

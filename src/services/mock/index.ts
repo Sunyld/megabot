@@ -1,4 +1,5 @@
 import type { Services } from '../types';
+import { mockActivationTasksService, mockDeviceRegistryService, mockWorkerService } from './activation';
 import { mockAuthService } from './auth';
 import { mockDevicesService, mockProductsService, mockSimsService } from './catalog';
 import { mockDashboardService } from './dashboard';
@@ -25,6 +26,9 @@ export const mockServices: Services = {
   products: mockProductsService,
   devices: mockDevicesService,
   sims: mockSimsService,
+  deviceRegistry: mockDeviceRegistryService,
+  activationTasks: mockActivationTasksService,
+  worker: mockWorkerService,
   notifications: mockNotificationsService,
   whatsapp: mockWhatsAppService,
   automation: mockAutomationService,

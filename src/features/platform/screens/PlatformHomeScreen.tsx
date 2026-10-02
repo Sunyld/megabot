@@ -20,6 +20,9 @@ import { SignOutDialog } from '@/features/settings/components/SignOutDialog';
 import { usePlatformTenants } from '@/hooks';
 import { hasPlatformPermission } from '@/services';
 import { createStyles } from '@/theme';
+import type { PlatformTenant } from '@/types';
+
+import { TenantActivationSheet } from '../components/TenantActivationSheet';
 
 /**
  * Platform area shell (MegaBot staff). Opens for ACTIVE platform admins, with
@@ -30,6 +33,7 @@ export function PlatformHomeScreen() {
   const styles = useStyles();
   const { user, platformAdmin } = usePlatformSession();
   const [signOutOpen, setSignOutOpen] = useState(false);
+  const [selected, setSelected] = useState<PlatformTenant | null>(null);
   const canReadTenants = hasPlatformPermission(platformAdmin, 'tenants.read');
   const tenants = usePlatformTenants({}, { enabled: canReadTenants });
   const roleLabel = platformAdmin.role ? platformRoleLabels[platformAdmin.role] : 'Administração';
@@ -91,6 +95,7 @@ export function PlatformHomeScreen() {
                     subtitle={`${tenant.slug} · ${tenant.members.total} ${tenant.members.total === 1 ? 'membro' : 'membros'}`}
                     trailing={<StatusBadge meta={tenantStatusMeta[tenant.status]} size="sm" />}
                     divider={index < data.length - 1}
+                    onPress={() => setSelected(tenant)}
                   />
                 ))}
               </ListGroup>
@@ -104,6 +109,7 @@ export function PlatformHomeScreen() {
       <Button label="Terminar sessão" icon="logout" variant="secondary" fullWidth onPress={() => setSignOutOpen(true)} />
 
       <SignOutDialog visible={signOutOpen} onClose={() => setSignOutOpen(false)} />
+      <TenantActivationSheet tenant={selected} onClose={() => setSelected(null)} />
     </Screen>
   );
 }

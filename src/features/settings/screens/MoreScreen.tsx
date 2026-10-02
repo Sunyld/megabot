@@ -85,6 +85,15 @@ export function MoreScreen() {
       </Section>
 
       <ListGroup>
+        <ListItem
+          icon="devices"
+          iconTone="brand"
+          title="Modo worker"
+          subtitle="Usar este telemóvel para executar ativações USSD"
+          chevron
+          divider
+          onPress={() => router.push('/worker')}
+        />
         <ListItem icon="help" iconTone="info" title="Ajuda e suporte" chevron divider onPress={() => router.push({ pathname: '/settings/[section]', params: { section: 'help' } })} />
         <ListItem icon="logout" title="Terminar sessão" destructive onPress={() => setSignOutOpen(true)} />
       </ListGroup>

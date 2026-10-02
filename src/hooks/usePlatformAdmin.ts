@@ -44,6 +44,15 @@ export function usePlatformTenantProducts(tenantId: ID) {
   return useQuery(queryKeys.platform.tenantProducts(tenantId), () => api.platformAdmin.listTenantProducts(tenantId));
 }
 
+/** Read-only, explicit platform RPC (permission tenants.read) — never the tenant tables directly. */
+export function usePlatformTenantDevices(tenantId: ID) {
+  return useQuery(queryKeys.platform.tenantDevices(tenantId), () => api.platformAdmin.listTenantDevices(tenantId));
+}
+
+export function usePlatformTenantActivationTasks(tenantId: ID) {
+  return useQuery(queryKeys.platform.tenantTasks(tenantId), () => api.platformAdmin.listTenantActivationTasks(tenantId));
+}
+
 export function useAuditLogs(query: AuditLogQuery = {}, { enabled = true } = {}) {
   return useQuery(queryKeys.platform.auditLogs(query), () => api.platformAdmin.getAuditLogs(query), { enabled });
 }

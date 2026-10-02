@@ -26,7 +26,7 @@ function setTask(task: ActivationTask, status: TaskStatus) {
 function pickSim() {
   const online = new Set(db.devices.filter((d) => d.status === 'online').map((d) => d.id));
   return db.sims.find(
-    (s) => online.has(s.deviceId) && s.status === 'available' && s.activationsToday < s.dailyLimit
+    (s) => online.has(s.deviceId) && s.status === 'available' && (s.dailyLimit === null || s.activationsToday < s.dailyLimit)
   );
 }
 

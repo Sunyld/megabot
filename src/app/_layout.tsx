@@ -103,6 +103,8 @@ function RootNavigator() {
             <Stack.Screen name="whatsapp/index" />
             <Stack.Screen name="whatsapp/[id]" />
             <Stack.Screen name="automation" />
+            <Stack.Screen name="tasks/[id]" />
+            <Stack.Screen name="worker" />
             <Stack.Screen name="notifications" />
             <Stack.Screen name="settings/index" />
             <Stack.Screen name="settings/[section]" />

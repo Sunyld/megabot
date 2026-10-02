@@ -5,7 +5,7 @@ import type {
   PaymentMatchListParams,
   PaymentProofListParams,
 } from '@/services';
-import type { AuditLogQuery, ID, PlatformTenantListParams } from '@/types';
+import type { ActivationTaskListParams, AuditLogQuery, ID, PlatformTenantListParams } from '@/types';
 
 /** Centralized query keys — prefixes are used for invalidation. */
 export const queryKeys = {
@@ -64,6 +64,12 @@ export const queryKeys = {
     conversations: () => ['whatsapp', 'conversations'] as const,
     conversation: (id: ID) => ['whatsapp', 'conversation', id] as const,
   },
+  /** Activation engine (006): task records, detail with attempts / history. */
+  activation: {
+    all: ['activation'] as const,
+    tasks: (params: ActivationTaskListParams) => ['activation', 'tasks', params] as const,
+    task: (id: ID) => ['activation', 'task', id] as const,
+  },
   automation: {
     all: ['automation'] as const,
     settings: () => ['automation', 'settings'] as const,
@@ -80,5 +86,7 @@ export const queryKeys = {
     auditLogsAll: ['platform', 'auditLogs'] as const,
     auditLogs: (query: AuditLogQuery) => ['platform', 'auditLogs', query] as const,
     tenantProducts: (tenantId: ID) => ['platform', 'tenants', 'products', tenantId] as const,
+    tenantDevices: (tenantId: ID) => ['platform', 'tenants', 'devices', tenantId] as const,
+    tenantTasks: (tenantId: ID) => ['platform', 'tenants', 'tasks', tenantId] as const,
   },
 };

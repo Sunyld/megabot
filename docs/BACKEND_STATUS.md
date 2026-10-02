@@ -116,6 +116,10 @@ RPCs de plataforma (002/003): `platform_admin_context`, `platform_list_tenants`,
 
 ## Próximos passos
 
+> **Atualização (Fase 7):** o ponto 1 foi implementado na migration `006_devices_activation.sql`
+> (**ainda não aplicada** no Supabase) e no worker Android — ver
+> [`docs/phase7/PHASE7_ACTIVATION_ENGINE.md`](phase7/PHASE7_ACTIVATION_ENGINE.md). O ponto 2 continua em aberto.
+
 1. **Fase 7 — motor de ativação:** dispositivos e SIMs por tenant, registo seguro do worker Android (sem `service_role` no APK), heartbeat, `activation_tasks` criadas uma única vez quando o pedido chega a `PAID`, dispatcher com bloqueio seguro (`FOR UPDATE SKIP LOCKED`), protocolo versionado backend ↔ worker, resultado `SUCCESS` / `FAILED` / `UNKNOWN` (UNKNOWN nunca repete sozinho) e ligação à máquina de estados dos pedidos (`READY_FOR_ACTIVATION → ACTIVATING → COMPLETED | FAILED`).
 2. **Execução USSD real:** exige build de desenvolvimento e módulo nativo Android (Telephony / seleção de SIM) — não existe no Expo Go.
 3. **Endurecimento:** revogar `DELETE` de `service_role` em `tenants`; regenerar `src/lib/supabase/database.types.ts` com `supabase gen types` quando o CLI/MCP estiver disponível (hoje é escrito à mão).

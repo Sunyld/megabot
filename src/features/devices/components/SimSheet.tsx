@@ -14,18 +14,21 @@ import { createStyles } from '@/theme';
 import type { Sim } from '@/types';
 import { formatData, formatMoney, formatPhone, formatRelative } from '@/utils/format';
 
-import { usageTone } from './SimCard';
+import { simUnavailableText, usageTone } from './SimCard';
 
 export function SimSheet({ sim, onClose }: { sim: Sim | null; onClose: () => void }) {
   const styles = useStyles();
   const setPaused = useSetSimPaused();
 
+  // A SIM out of rotation (paused, or a different SIM detected in the slot) is
+  // brought back by a person; everything else can be paused.
+  const resuming = sim?.status === 'paused' || sim?.status === 'unavailable';
+
   const toggle = async () => {
     if (!sim) return;
-    const pausing = sim.status !== 'paused';
     try {
-      await setPaused.mutateAsync({ id: sim.id, paused: pausing });
-      toast.success(pausing ? 'SIM pausado' : 'SIM retomado', pausing ? 'Fica fora da rotação de ativações.' : 'Volta a receber tarefas.');
+      await setPaused.mutateAsync({ id: sim.id, paused: !resuming });
+      toast.success(resuming ? 'SIM ativo' : 'SIM pausado', resuming ? 'Volta a receber tarefas.' : 'Fica fora da rotação de ativações.');
       onClose();
     } catch (e) {
       toast.error('Não foi possível atualizar', errorMessage(e));
@@ -43,9 +46,15 @@ export function SimSheet({ sim, onClose }: { sim: Sim | null; onClose: () => voi
       footer={
         sim && sim.status !== 'offline' ? (
           <Button
-            label={sim.status === 'paused' ? 'Retomar ativações' : 'Pausar ativações'}
-            icon={sim.status === 'paused' ? 'play' : 'pause'}
-            variant={sim.status === 'paused' ? 'primary' : 'secondary'}
+            label={
+              sim.status === 'unavailable' && sim.unavailableReason === 'SIM_CHANGED'
+                ? 'Confirmar este SIM'
+                : resuming
+                  ? 'Retomar ativações'
+                  : 'Pausar ativações'
+            }
+            icon={resuming ? 'play' : 'pause'}
+            variant={resuming ? 'primary' : 'secondary'}
             fullWidth
             loading={setPaused.isPending}
             onPress={toggle}
@@ -63,18 +72,28 @@ export function SimSheet({ sim, onClose }: { sim: Sim | null; onClose: () => voi
           <View style={styles.usage}>
             <View style={styles.row}>
               <Text variant="bodyMedium">Ativações hoje</Text>
-              <Text variant="bodyStrong" tabular>{`${sim.activationsToday} de ${sim.dailyLimit}`}</Text>
+              <Text variant="bodyStrong" tabular>
+                {sim.dailyLimit !== null ? `${sim.activationsToday} de ${sim.dailyLimit}` : `${sim.activationsToday}`}
+              </Text>
             </View>
-            <ProgressBar value={ratio} tone={usageTone(ratio)} height={8} />
+            {sim.dailyLimit !== null && <ProgressBar value={ratio} tone={usageTone(ratio)} height={8} />}
             {sim.status === 'limit_reached' && (
               <Text variant="caption" color="warning">
                 Limite diário atingido. O dispatcher usa outros SIMs até amanhã.
               </Text>
             )}
+            {sim.status === 'unavailable' && (
+              <Text variant="caption" color="warning">
+                {simUnavailableText(sim.unavailableReason)}
+              </Text>
+            )}
           </View>
           <View>
-            <KeyValue label="Número" value={formatPhone(sim.msisdn)} />
-            <KeyValue label="Dados" value={`${formatData(sim.dataUsedMb)} de ${formatData(sim.dataTotalMb)}`} />
+            <KeyValue label="Número" value={sim.msisdn ? formatPhone(sim.msisdn) : 'Não indicado'} />
+            <KeyValue
+              label="Dados"
+              value={sim.dataUsedMb !== null && sim.dataTotalMb !== null ? `${formatData(sim.dataUsedMb)} de ${formatData(sim.dataTotalMb)}` : 'Indisponível'}
+            />
             <KeyValue label="Saldo" value={sim.balance !== null ? formatMoney(sim.balance) : 'Indisponível'} />
             <KeyValue
               label="Pagamentos"

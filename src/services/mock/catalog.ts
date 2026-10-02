@@ -121,7 +121,7 @@ export const mockDevicesService: DevicesService = {
         simsAvailable: sims.filter((s) => s.status === 'available').length,
         simsTotal: sims.length,
         capacityUsed: sims.reduce((sum, s) => sum + s.activationsToday, 0),
-        capacityTotal: sims.reduce((sum, s) => sum + s.dailyLimit, 0),
+        capacityTotal: sims.reduce((sum, s) => sum + (s.dailyLimit ?? 0), 0),
       };
     }, { empty: () => ({ online: 0, total: 0, simsAvailable: 0, simsTotal: 0, capacityUsed: 0, capacityTotal: 0 }) }),
 
@@ -161,7 +161,7 @@ export const mockSimsService: SimsService = {
     request((tenantId) => {
       const sim = db.sims.filter(ownedBy(tenantId)).find((s) => s.id === id) ?? notFound('SIM');
       if (sim.status !== 'offline') {
-        sim.status = paused ? 'paused' : sim.activationsToday >= sim.dailyLimit ? 'limit_reached' : 'available';
+        sim.status = paused ? 'paused' : sim.dailyLimit !== null && sim.activationsToday >= sim.dailyLimit ? 'limit_reached' : 'available';
       }
       return sim;
     }),

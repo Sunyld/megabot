@@ -30,6 +30,8 @@ import {
   tenantStatusConflict,
 } from '../platformAdmin';
 import type { PlatformAdminService } from '../types';
+import { toDeviceRecord, toTaskRecord } from './activation';
+import type { ActivationGateway } from './activationGateway';
 import { toAppError } from './errors';
 import type { AuditLogRow, PlatformAdminContextRow, PlatformAdminGateway, PlatformTenantRow } from './platformAdminGateway';
 import { toProduct } from './products';
@@ -133,7 +135,14 @@ function toPlatformError(error: unknown, options: { tenant?: boolean; target?: T
   }
 }
 
-export function createSupabasePlatformAdminService(gateway: PlatformAdminGateway): PlatformAdminService {
+/**
+ * `activation` (migration 006) adds the read-only device / task views; without it
+ * those lists are empty (older backends).
+ */
+export function createSupabasePlatformAdminService(
+  gateway: PlatformAdminGateway,
+  activation?: Pick<ActivationGateway, 'platformDevices' | 'platformTasks'>
+): PlatformAdminService {
   async function changeStatus(id: ID, target: TenantStatus, input: TenantStatusChangeInput | undefined) {
     const reason = normalizeReason(input?.reason);
     try {
@@ -189,6 +198,24 @@ export function createSupabasePlatformAdminService(gateway: PlatformAdminGateway
     async listTenantProducts(tenantId) {
       try {
         return (await gateway.listTenantProducts(tenantId)).map(toProduct);
+      } catch (error) {
+        throw toPlatformError(error, { tenant: true });
+      }
+    },
+
+    async listTenantDevices(tenantId) {
+      if (!activation) return [];
+      try {
+        return (await activation.platformDevices(tenantId)).map(toDeviceRecord);
+      } catch (error) {
+        throw toPlatformError(error, { tenant: true });
+      }
+    },
+
+    async listTenantActivationTasks(tenantId) {
+      if (!activation) return [];
+      try {
+        return (await activation.platformTasks(tenantId, 100)).map(toTaskRecord);
       } catch (error) {
         throw toPlatformError(error, { tenant: true });
       }

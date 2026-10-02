@@ -5,19 +5,28 @@
  */
 import type {
   Activity,
+  ActivationPayload,
   ActivationTask,
+  ActivationTaskDetail,
+  ActivationTaskListParams,
+  ActivationTaskRecord,
   AppNotification,
   AuditLogEntry,
   AuditLogQuery,
   AutomationSettings,
   AutomationStats,
   ConfirmPaymentInput,
+  CreateDeviceSimInput,
   CreateOrderInput,
   CreatePaymentAccountInput,
   Conversation,
   DashboardSummary,
   Device,
+  DevicePairing,
+  DeviceRecord,
+  DeviceSimRecord,
   DevicesSummary,
+  HeartbeatResult,
   ID,
   Order,
   OrderCounts,
@@ -43,9 +52,15 @@ import type {
   Sim,
   SubmitPaymentProofInput,
   TenantStatusChangeInput,
+  UpdateDeviceInput,
+  UpdateDeviceSimInput,
   UpdatePaymentAccountInput,
   WhatsAppConnection,
   WhatsAppGroup,
+  WorkerHeartbeat,
+  WorkerIdentity,
+  WorkerRegistrationInput,
+  WorkerResultReport,
 } from '@/types';
 
 /**
@@ -227,6 +242,57 @@ export interface SimsService {
   setPaused(id: ID, paused: boolean): Promise<Sim>;
 }
 
+/**
+ * Activation engine (migration 006): worker devices and their SIMs.
+ * Reads: any member. Writes: owner / admin of an active tenant (audited).
+ * The pairing code is shown once; the device token never reaches the screens.
+ */
+export interface DeviceRegistryService {
+  listDevices(): Promise<DeviceRecord[]>;
+  getDevice(id: ID): Promise<DeviceRecord>;
+  /** New device (UNREGISTERED) + one-time pairing code (15 min). */
+  createDevice(name: string): Promise<DevicePairing>;
+  /** New code for a device (new phone / reinstall): pairing again revokes the old token. */
+  createPairingCode(deviceId: ID): Promise<DevicePairing>;
+  updateDevice(id: ID, input: UpdateDeviceInput): Promise<DeviceRecord>;
+  listSims(params?: { deviceId?: ID }): Promise<DeviceSimRecord[]>;
+  registerSim(input: CreateDeviceSimInput): Promise<DeviceSimRecord>;
+  /** Re-activating a SIM marked "a different SIM is in this slot" accepts the new SIM. */
+  updateSim(id: ID, input: UpdateDeviceSimInput): Promise<DeviceSimRecord>;
+}
+
+/**
+ * Activation tasks: one per PAID order, created and moved by the backend.
+ * People only decide what machines cannot: retry a FAILED task, settle an
+ * UNKNOWN one (owner / admin, audited).
+ */
+export interface ActivationTasksService {
+  list(params?: ActivationTaskListParams): Promise<ActivationTaskRecord[]>;
+  get(id: ID): Promise<ActivationTaskDetail>;
+  /** Runs the dispatcher for the tenant now (workers also trigger it). Returns how many were assigned. */
+  dispatch(): Promise<number>;
+  retry(id: ID, note?: string): Promise<ActivationTaskRecord>;
+  /** UNKNOWN → SUCCESS | FAILED after a person checked with the customer / operator. */
+  resolve(id: ID, outcome: 'SUCCESS' | 'FAILED', note: string): Promise<ActivationTaskRecord>;
+}
+
+/**
+ * The worker side of the protocol (megabot.activation.v1), used only by the
+ * Android worker runtime (src/features/worker) — never by the normal screens.
+ * Every call after `register` carries the device identity (id + token).
+ */
+export interface WorkerService {
+  register(input: WorkerRegistrationInput): Promise<WorkerIdentity>;
+  heartbeat(identity: WorkerIdentity, report: WorkerHeartbeat): Promise<HeartbeatResult>;
+  /** The device's current task (the backend runs the dispatcher first), or null. */
+  fetchTask(identity: WorkerIdentity): Promise<ActivationPayload | null>;
+  /** ASSIGNED → EXECUTING; refused if the task is not assigned to this device. */
+  startTask(identity: WorkerIdentity, taskId: ID): Promise<ActivationPayload>;
+  /** MUST be called with SUBMITTED before sending the final confirmation. */
+  reportProgress(identity: WorkerIdentity, taskId: ID, status: 'SUBMITTED' | 'VERIFYING'): Promise<void>;
+  reportResult(identity: WorkerIdentity, taskId: ID, report: WorkerResultReport): Promise<ActivationTaskRecord>;
+}
+
 export interface NotificationsService {
   list(): Promise<AppNotification[]>;
   markRead(id: ID): Promise<void>;
@@ -269,6 +335,10 @@ export interface PlatformAdminService {
   getAuditLogs(query?: AuditLogQuery): Promise<AuditLogEntry[]>;
   /** Every product of one tenant, archived included (read-only, permission tenants.read). */
   listTenantProducts(tenantId: ID): Promise<Product[]>;
+  /** Worker devices of one tenant (read-only, permission tenants.read). */
+  listTenantDevices(tenantId: ID): Promise<DeviceRecord[]>;
+  /** Latest activation tasks of one tenant (read-only, permission tenants.read). */
+  listTenantActivationTasks(tenantId: ID): Promise<ActivationTaskRecord[]>;
 }
 
 export type Services = {
@@ -283,6 +353,9 @@ export type Services = {
   products: ProductsService;
   devices: DevicesService;
   sims: SimsService;
+  deviceRegistry: DeviceRegistryService;
+  activationTasks: ActivationTasksService;
+  worker: WorkerService;
   notifications: NotificationsService;
   whatsapp: WhatsAppService;
   automation: AutomationService;

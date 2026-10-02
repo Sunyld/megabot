@@ -19,11 +19,18 @@ export function SimChip({ sim }: { sim: Sim }) {
   return <Badge label={`SIM ${sim.slot} · ${label}`} tone={meta.tone} icon={meta.icon} size="sm" />;
 }
 
+/** Why the dispatcher skips this SIM. */
+export const simUnavailableText = (reason: Sim['unavailableReason']) =>
+  reason === 'SIM_CHANGED'
+    ? 'Está outro SIM neste slot. Confirme o SIM para voltar a usá-lo.'
+    : 'O telemóvel não deteta este SIM. Fica fora de rotação até voltar a ser detetado.';
+
 export function SimCard({ sim, onPress, showDevice }: { sim: Sim; onPress?: () => void; showDevice?: boolean }) {
   const { colors } = useTheme();
   const styles = useStyles();
   const activationRatio = sim.dailyLimit ? sim.activationsToday / sim.dailyLimit : 0;
-  const dataRatio = sim.dataTotalMb ? sim.dataUsedMb / sim.dataTotalMb : 0;
+  const dataRatio = sim.dataTotalMb && sim.dataUsedMb !== null ? sim.dataUsedMb / sim.dataTotalMb : 0;
+  const phone = sim.msisdn ? formatPhone(sim.msisdn) : 'Número não indicado';
   const paymentsOnly = sim.status === 'paused' && sim.paymentWallet;
   const muted = sim.status === 'offline';
 
@@ -39,7 +46,7 @@ export function SimCard({ sim, onPress, showDevice }: { sim: Sim; onPress?: () =
               {`SIM ${sim.slot} · ${operatorLabels[sim.operator]}`}
             </Text>
             <Text variant="caption" color="muted" numberOfLines={1} tabular>
-              {showDevice ? `${sim.deviceName} · ${formatPhone(sim.msisdn)}` : formatPhone(sim.msisdn)}
+              {showDevice ? `${sim.deviceName} · ${phone}` : phone}
             </Text>
           </View>
         </View>
@@ -57,23 +64,31 @@ export function SimCard({ sim, onPress, showDevice }: { sim: Sim; onPress?: () =
                 Ativações hoje
               </Text>
               <Text variant="captionStrong" tabular>
-                {`${sim.activationsToday}/${sim.dailyLimit}`}
+                {sim.dailyLimit !== null ? `${sim.activationsToday}/${sim.dailyLimit}` : `${sim.activationsToday}`}
               </Text>
             </View>
-            <ProgressBar value={activationRatio} tone={usageTone(activationRatio)} />
+            {sim.dailyLimit !== null && <ProgressBar value={activationRatio} tone={usageTone(activationRatio)} />}
           </View>
-          <View style={styles.meter}>
-            <View style={styles.meterLabel}>
-              <Text variant="caption" color="secondary">
-                Dados
-              </Text>
-              <Text variant="captionStrong" tabular>
-                {`${formatData(sim.dataUsedMb)} / ${formatData(sim.dataTotalMb)}`}
-              </Text>
+          {sim.dataUsedMb !== null && sim.dataTotalMb !== null && (
+            <View style={styles.meter}>
+              <View style={styles.meterLabel}>
+                <Text variant="caption" color="secondary">
+                  Dados
+                </Text>
+                <Text variant="captionStrong" tabular>
+                  {`${formatData(sim.dataUsedMb)} / ${formatData(sim.dataTotalMb)}`}
+                </Text>
+              </View>
+              <ProgressBar value={dataRatio} tone={usageTone(dataRatio)} />
             </View>
-            <ProgressBar value={dataRatio} tone={usageTone(dataRatio)} />
-          </View>
+          )}
         </View>
+      )}
+
+      {sim.status === 'unavailable' && (
+        <Text variant="caption" color="warning">
+          {simUnavailableText(sim.unavailableReason)}
+        </Text>
       )}
 
       {sim.paymentWallet && (

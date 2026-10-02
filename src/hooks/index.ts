@@ -1,4 +1,5 @@
 export * from './queryKeys';
+export * from './useActivation';
 export * from './useCatalog';
 export * from './useEngagement';
 export * from './useNow';

@@ -46,7 +46,7 @@ function buildAttention(tenantId: string): AttentionItem[] {
         id: `att_${d.id}`,
         severity: 'warning',
         title: `${d.name} offline`,
-        description: `Última ligação ${formatRelativeLong(d.lastSeenAt)}. Tarefas redirecionadas.`,
+        description: d.lastSeenAt ? `Última ligação ${formatRelativeLong(d.lastSeenAt)}. Tarefas redirecionadas.` : 'Ainda sem ligação.',
         target: { type: 'device', id: d.id },
       })
     );
@@ -143,7 +143,7 @@ export const mockDashboardService: DashboardService = {
             severity: 'warning',
             title: `${device.name} ficou offline`,
             description: 'Tarefas redirecionadas para outros dispositivos',
-            at: device.lastSeenAt,
+            at: device.lastSeenAt ?? device.syncedAt ?? new Date().toISOString(),
             target: { type: 'device', id: device.id },
           });
         }

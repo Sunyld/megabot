@@ -19,6 +19,7 @@ import {
   tenantStatusConflict,
 } from '../platformAdmin';
 import type { PlatformAdminService } from '../types';
+import { mockDeviceRecord, mockTaskRecord } from './activation';
 import { db, request } from './db';
 
 /** Mirrors private.platform_role_permissions() (migration 002). */
@@ -142,6 +143,26 @@ export function createMockPlatformAdminService({
           findTenant(tenantId);
           // Only the demo tenant has a catalog in mock mode.
           return db.products.filter((product) => product.tenantId === tenantId);
+        },
+        { list: true, requireTenant: false }
+      ),
+
+    listTenantDevices: (tenantId) =>
+      request(
+        () => {
+          authorize('tenants.read');
+          findTenant(tenantId);
+          return db.devices.filter((device) => device.tenantId === tenantId).map(mockDeviceRecord);
+        },
+        { list: true, requireTenant: false }
+      ),
+
+    listTenantActivationTasks: (tenantId) =>
+      request(
+        () => {
+          authorize('tenants.read');
+          findTenant(tenantId);
+          return db.tasks.filter((task) => task.tenantId === tenantId).map(mockTaskRecord);
         },
         { list: true, requireTenant: false }
       ),

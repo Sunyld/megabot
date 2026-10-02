@@ -125,7 +125,8 @@ export const checkLabels: Record<ReconciliationCheckKey, string> = {
 export const deviceStatusMeta: Record<DeviceStatus, StatusMeta> = {
   online: { label: 'Online', tone: 'success', icon: 'dot' },
   offline: { label: 'Offline', tone: 'neutral', icon: 'cloudOff' },
-  paused: { label: 'Pausado', tone: 'warning', icon: 'pause' },
+  paused: { label: 'Desativado', tone: 'warning', icon: 'pause' },
+  unregistered: { label: 'Por emparelhar', tone: 'info', icon: 'link' },
 };
 
 export const simStatusMeta: Record<SimStatus, StatusMeta> = {
@@ -135,6 +136,7 @@ export const simStatusMeta: Record<SimStatus, StatusMeta> = {
   error: { label: 'Erro', tone: 'danger', icon: 'error' },
   paused: { label: 'Pausado', tone: 'neutral', icon: 'pause' },
   offline: { label: 'Offline', tone: 'neutral', icon: 'cloudOff' },
+  unavailable: { label: 'Indisponível', tone: 'warning', icon: 'warning' },
 };
 
 export const taskStatusMeta: Record<TaskStatus, StatusMeta & { description: string }> = {
@@ -161,6 +163,7 @@ export const attemptResultMeta: Record<AttemptResult, StatusMeta> = {
   success: { label: 'Sucesso', tone: 'success', icon: 'checkCircle' },
   failed: { label: 'Falhou', tone: 'danger', icon: 'error' },
   timeout: { label: 'Sem resposta', tone: 'warning', icon: 'unknown' },
+  unknown: { label: 'Sem confirmação', tone: 'warning', icon: 'unknown' },
 };
 
 export const intentLabels: Record<MessageIntent, string> = {

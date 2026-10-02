@@ -18,6 +18,7 @@ export function DeviceCard({ device, sims, now }: { device: Device; sims: Sim[];
   const { colors } = useTheme();
   const styles = useStyles();
   const offline = device.status === 'offline';
+  const unregistered = device.status === 'unregistered';
   const status = deviceStatusMeta[device.status];
 
   return (
@@ -36,7 +37,7 @@ export function DeviceCard({ device, sims, now }: { device: Device; sims: Sim[];
           </Text>
           <View style={styles.nameRow}>
             <Text variant="caption" color="muted" numberOfLines={1} style={styles.flexShrink}>
-              {device.model}
+              {device.model ?? (unregistered ? 'Telemóvel ainda não emparelhado' : 'Android')}
             </Text>
             {device.role === 'primary' && <Badge label="Principal" tone="brand" size="sm" />}
           </View>
@@ -49,10 +50,17 @@ export function DeviceCard({ device, sims, now }: { device: Device; sims: Sim[];
         </View>
       </View>
 
-      {offline ? (
+      {unregistered ? (
+        <View style={styles.redirect}>
+          <Icon name="link" size={16} color={colors.tones.info.fg} />
+          <Text variant="caption" color="info" style={styles.flex}>
+            Abra o MegaBot no telemóvel worker e introduza o código de emparelhamento.
+          </Text>
+        </View>
+      ) : offline ? (
         <View style={styles.offline}>
           <Text variant="callout" color="secondary">
-            {`Última ligação ${formatRelativeLong(device.lastSeenAt, now)}`}
+            {device.lastSeenAt ? `Última ligação ${formatRelativeLong(device.lastSeenAt, now)}` : 'Ainda sem ligação'}
           </Text>
           <View style={styles.redirect}>
             <Icon name="failover" size={16} color={colors.tones.info.fg} />

@@ -17,7 +17,7 @@ export const mockDevices: Device[] = [
     lastSeenAt: ago({ seconds: 8 }),
     syncedAt: ago({ seconds: 8 }),
     simIds: ['sim_01_1', 'sim_01_2'],
-    capabilities: { ussd: true, sms: true, dualSim: true },
+    capabilities: { ussd: true, ussdInteractive: true, sms: true, dualSim: true },
     usage: { tasksToday: 12, successToday: 12, failedToday: 0, capacityPerDay: 20 },
     errors: [],
     history: [
@@ -41,7 +41,7 @@ export const mockDevices: Device[] = [
     lastSeenAt: ago({ seconds: 21 }),
     syncedAt: ago({ seconds: 21 }),
     simIds: ['sim_02_1', 'sim_02_2'],
-    capabilities: { ussd: true, sms: true, dualSim: true },
+    capabilities: { ussd: true, ussdInteractive: true, sms: true, dualSim: true },
     usage: { tasksToday: 14, successToday: 13, failedToday: 1, capacityPerDay: 20 },
     errors: [
       {
@@ -73,7 +73,7 @@ export const mockDevices: Device[] = [
     lastSeenAt: ago({ minutes: 12 }),
     syncedAt: ago({ minutes: 12 }),
     simIds: ['sim_03_1', 'sim_03_2'],
-    capabilities: { ussd: true, sms: true, dualSim: true },
+    capabilities: { ussd: true, ussdInteractive: true, sms: true, dualSim: true },
     usage: { tasksToday: 4, successToday: 4, failedToday: 0, capacityPerDay: 20 },
     errors: [
       {
@@ -111,7 +111,7 @@ export const mockDevices: Device[] = [
     lastSeenAt: ago({ seconds: 4 }),
     syncedAt: ago({ seconds: 4 }),
     simIds: ['sim_04_1', 'sim_04_2'],
-    capabilities: { ussd: true, sms: true, dualSim: true },
+    capabilities: { ussd: true, ussdInteractive: true, sms: true, dualSim: true },
     usage: { tasksToday: 2, successToday: 2, failedToday: 0, capacityPerDay: 20 },
     errors: [],
     history: [

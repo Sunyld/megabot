@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from '@/lib/query';
 import { api } from '@/services';
-import type { ID, ProductInput } from '@/types';
+import type { CreateDeviceSimInput, ID, ProductInput } from '@/types';
 
 import { queryKeys } from './queryKeys';
 
@@ -63,6 +63,26 @@ export function useSetDevicePaused() {
 
 export function useTestUssd() {
   return useMutation((id: ID) => api.devices.testUssd(id));
+}
+
+const fleet = [queryKeys.devices.all, queryKeys.sims.all, queryKeys.dashboard.all];
+
+/** Owner / admin: new worker device + its one-time pairing code. */
+export function useCreateDevice() {
+  return useMutation((name: string) => api.deviceRegistry.createDevice(name), { invalidate: fleet });
+}
+
+/** Owner / admin: new pairing code (new phone / reinstall) — the old token stops working once used. */
+export function useCreatePairingCode() {
+  return useMutation((deviceId: ID) => api.deviceRegistry.createPairingCode(deviceId), { invalidate: fleet });
+}
+
+export function useRenameDevice() {
+  return useMutation(({ id, name }: { id: ID; name: string }) => api.deviceRegistry.updateDevice(id, { name }), { invalidate: fleet });
+}
+
+export function useRegisterSim() {
+  return useMutation((input: CreateDeviceSimInput) => api.deviceRegistry.registerSim(input), { invalidate: fleet });
 }
 
 // ─── SIMs ────────────────────────────────────────────────────────────────────

@@ -23,7 +23,7 @@ type SimFilter = 'all' | 'available' | 'limit' | 'unavailable';
 const matches = (sim: Sim, filter: SimFilter) => {
   if (filter === 'available') return sim.status === 'available';
   if (filter === 'limit') return sim.status === 'limit_reached';
-  if (filter === 'unavailable') return ['offline', 'paused', 'error'].includes(sim.status);
+  if (filter === 'unavailable') return ['offline', 'paused', 'error', 'unavailable'].includes(sim.status);
   return true;
 };
 
@@ -38,7 +38,7 @@ export function SimsScreen() {
   const selected = list.find((s) => s.id === selectedId) ?? null;
   const activationSims = list.filter((s) => !(s.status === 'paused' && s.paymentWallet));
   const used = activationSims.reduce((sum, s) => sum + s.activationsToday, 0);
-  const limit = activationSims.reduce((sum, s) => sum + s.dailyLimit, 0);
+  const limit = activationSims.reduce((sum, s) => sum + (s.dailyLimit ?? 0), 0);
 
   const options = [
     { value: 'all' as const, label: 'Todos', count: list.length },
@@ -56,7 +56,7 @@ export function SimsScreen() {
       {sims.data && (
         <View style={styles.grid}>
           <StatCard label="Disponíveis" value={`${options[1].count}/${list.length}`} icon="sim" tone="success" />
-          <StatCard label="Ativações hoje" value={`${used}/${limit}`} icon="bolt" tone="info" />
+          <StatCard label="Ativações hoje" value={limit ? `${used}/${limit}` : `${used}`} icon="bolt" tone="info" />
         </View>
       )}
 
@@ -83,7 +83,7 @@ export function SimsScreen() {
       </QueryView>
 
       <Text variant="caption" color="muted" align="center">
-        O dispatcher escolhe sempre o SIM disponível com menos uso e evita duplicar ativações.
+        O dispatcher só usa SIMs ativos da rede do pacote, num telemóvel online e livre — nunca dois trabalhos no mesmo SIM.
       </Text>
 
       <SimSheet sim={selected} onClose={() => setSelectedId(null)} />

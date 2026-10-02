@@ -1,6 +1,6 @@
 /**
  * Database types for the Supabase client, in the format produced by
- * `supabase gen types typescript`. Written by hand for migrations 001–005
+ * `supabase gen types typescript`. Written by hand for migrations 001–006
  * because the database is not reachable from this environment — regenerate
  * once the CLI/MCP is available and keep in sync with supabase/migrations.
  *
@@ -536,6 +536,230 @@ export type Database = {
           },
         ];
       };
+      devices: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          device_name: string;
+          device_identifier: string | null;
+          platform: string | null;
+          app_version: string | null;
+          status: string;
+          capabilities: Json;
+          telemetry: Json;
+          last_seen_at: string | null;
+          registered_at: string | null;
+          registered_by: string | null;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        /** Not writable through the API: create_device / update_device / register_device / device_heartbeat. */
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          device_name: string;
+          device_identifier?: string | null;
+          platform?: string | null;
+          app_version?: string | null;
+          status?: string;
+          capabilities?: Json;
+          telemetry?: Json;
+          last_seen_at?: string | null;
+          registered_at?: string | null;
+          registered_by?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          [_ in never]: never;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'devices_tenant_id_fkey';
+            columns: ['tenant_id'];
+            isOneToOne: false;
+            referencedRelation: 'tenants';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      device_sims: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          device_id: string;
+          slot_index: number;
+          operator: string;
+          phone_number: string | null;
+          status: string;
+          unavailable_reason: string | null;
+          capabilities: Json;
+          sim_fingerprint: string | null;
+          last_seen_at: string | null;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        /** Not writable through the API: register_device_sim / update_device_sim / device_heartbeat. */
+        Insert: {
+          id?: string;
+          tenant_id?: string;
+          device_id: string;
+          slot_index: number;
+          operator: string;
+          phone_number?: string | null;
+          status?: string;
+          unavailable_reason?: string | null;
+          capabilities?: Json;
+          sim_fingerprint?: string | null;
+          last_seen_at?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          [_ in never]: never;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'device_sims_device_id_fkey';
+            columns: ['device_id'];
+            isOneToOne: false;
+            referencedRelation: 'devices';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      activation_tasks: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          order_id: string;
+          product_id: string;
+          device_id: string | null;
+          sim_id: string | null;
+          status: string;
+          priority: number;
+          operator: string;
+          ussd_flow: Json | null;
+          flow_version: number;
+          attempt_count: number;
+          max_attempts: number;
+          assigned_at: string | null;
+          started_at: string | null;
+          submitted_at: string | null;
+          completed_at: string | null;
+          result_code: string | null;
+          result_message: string | null;
+          failure_reason: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        /** Created by the database when an order becomes PAID; moved only by the engine's functions. */
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          order_id: string;
+          product_id: string;
+          operator: string;
+          ussd_flow?: Json | null;
+        };
+        Update: {
+          [_ in never]: never;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'activation_tasks_order_id_fkey';
+            columns: ['order_id'];
+            isOneToOne: true;
+            referencedRelation: 'orders';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      activation_task_attempts: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          task_id: string;
+          sequence: number;
+          attempt_number: number;
+          device_id: string | null;
+          sim_id: string | null;
+          slot_index: number | null;
+          outcome: string;
+          result_code: string;
+          retryable: boolean;
+          source: string;
+          ussd_trace: string | null;
+          operator_response: string | null;
+          note: string | null;
+          decided_by: string | null;
+          started_at: string | null;
+          finished_at: string;
+          created_at: string;
+        };
+        /** Immutable; written only by the engine. */
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          task_id: string;
+          sequence: number;
+          attempt_number: number;
+          outcome: string;
+          result_code: string;
+          source: string;
+        };
+        Update: {
+          [_ in never]: never;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'activation_task_attempts_task_id_fkey';
+            columns: ['task_id'];
+            isOneToOne: false;
+            referencedRelation: 'activation_tasks';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      activation_task_events: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          task_id: string;
+          event_type: string;
+          from_status: string | null;
+          to_status: string;
+          device_id: string | null;
+          sim_id: string | null;
+          actor_user_id: string | null;
+          metadata: Json;
+          created_at: string;
+        };
+        /** Append-only; written only by a trigger. */
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          task_id: string;
+          event_type: string;
+          to_status: string;
+        };
+        Update: {
+          [_ in never]: never;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'activation_task_events_task_id_fkey';
+            columns: ['task_id'];
+            isOneToOne: false;
+            referencedRelation: 'activation_tasks';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       audit_logs: {
         Row: {
           id: string;
@@ -668,6 +892,85 @@ export type Database = {
       confirm_payment_manually: {
         Args: { p_order_id: string; p_payment_event_id: string; p_payment_proof_id?: string; p_note?: string };
         Returns: Database['public']['Tables']['payment_matches']['Row'][];
+      };
+      create_device: {
+        Args: { p_tenant_id: string; p_device_name: string };
+        Returns: { device_id: string; pairing_code: string; pairing_expires_at: string }[];
+      };
+      create_device_pairing_code: {
+        Args: { p_device_id: string };
+        Returns: { device_id: string; pairing_code: string; pairing_expires_at: string }[];
+      };
+      update_device: {
+        Args: { p_device_id: string; p_device_name?: string; p_status?: string };
+        Returns: Database['public']['Tables']['devices']['Row'][];
+      };
+      register_device_sim: {
+        Args: { p_device_id: string; p_slot_index: number; p_operator: string; p_phone_number?: string };
+        Returns: Database['public']['Tables']['device_sims']['Row'][];
+      };
+      update_device_sim: {
+        Args: { p_sim_id: string; p_operator?: string; p_phone_number?: string; p_status?: string };
+        Returns: Database['public']['Tables']['device_sims']['Row'][];
+      };
+      dispatch_activation_tasks: {
+        Args: { p_tenant_id: string };
+        Returns: number;
+      };
+      retry_activation_task: {
+        Args: { p_task_id: string; p_note?: string };
+        Returns: Database['public']['Tables']['activation_tasks']['Row'][];
+      };
+      resolve_activation_task: {
+        Args: { p_task_id: string; p_outcome: string; p_note: string };
+        Returns: Database['public']['Tables']['activation_tasks']['Row'][];
+      };
+      register_device: {
+        Args: { p_pairing_code: string; p_device_identifier: string; p_platform: string; p_app_version: string };
+        Returns: { device_id: string; device_token: string; device_name: string; tenant_id: string }[];
+      };
+      device_heartbeat: {
+        Args: {
+          p_device_id: string;
+          p_device_token: string;
+          p_app_version?: string;
+          p_capabilities?: Json;
+          p_telemetry?: Json;
+          p_sims?: Json;
+        };
+        Returns: Json;
+      };
+      worker_fetch_task: {
+        Args: { p_device_id: string; p_device_token: string };
+        Returns: Json;
+      };
+      worker_start_task: {
+        Args: { p_device_id: string; p_device_token: string; p_task_id: string };
+        Returns: Json;
+      };
+      worker_report_progress: {
+        Args: { p_device_id: string; p_device_token: string; p_task_id: string; p_status: string };
+        Returns: Database['public']['Tables']['activation_tasks']['Row'][];
+      };
+      worker_report_result: {
+        Args: {
+          p_device_id: string;
+          p_device_token: string;
+          p_task_id: string;
+          p_outcome: string;
+          p_result_code: string;
+          p_operator_response?: string;
+          p_ussd_trace?: string;
+        };
+        Returns: Database['public']['Tables']['activation_tasks']['Row'][];
+      };
+      platform_list_tenant_devices: {
+        Args: { p_tenant_id: string };
+        Returns: Database['public']['Tables']['devices']['Row'][];
+      };
+      platform_list_tenant_activation_tasks: {
+        Args: { p_tenant_id: string; p_limit?: number };
+        Returns: Database['public']['Tables']['activation_tasks']['Row'][];
       };
     };
     Enums: {

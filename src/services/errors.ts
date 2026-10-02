@@ -55,6 +55,16 @@ export type AppErrorReason =
   | 'PAYMENT_NOT_CONFIRMABLE'
   | 'PROOF_ALREADY_DECIDED'
   | 'PAYMENT_WRITE_DENIED'
+  // Activation engine (devices, SIMs, tasks)
+  | 'DEVICE_WRITE_DENIED'
+  | 'PAIRING_CODE_INVALID'
+  | 'DEVICE_DISABLED'
+  | 'DEVICE_NOT_REGISTERED'
+  | 'DEVICE_IDENTIFIER_TAKEN'
+  | 'SIM_SLOT_TAKEN'
+  | 'TASK_NOT_RETRYABLE'
+  | 'TASK_NOT_UNKNOWN'
+  | 'TASK_NOT_ASSIGNED'
   // Shared by domains still to come (payments, activation)
   | 'FEATURE_NOT_AVAILABLE'
   // Shared
