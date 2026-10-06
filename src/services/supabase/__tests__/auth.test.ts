@@ -362,12 +362,19 @@ describe('platform admin access', () => {
     expect(session).toMatchObject({ kind: 'tenant', user: { role: 'admin' } });
   });
 
-  it('keeps tenant login working when the platform RPC is not deployed', async () => {
-    const { auth, mocks } = setup();
-    mocks.fetchPlatformAccess.mockRejectedValueOnce(
-      new PostgrestError({ code: 'PGRST202', message: 'Could not find the function', details: '', hint: '' })
-    );
-    expect((await auth.signIn({ email: 'a@b.co', password: 'x' })).kind).toBe('tenant');
+  it('never reports an unreadable platform access as "no company": the missing RPC is its own error', async () => {
+    // Before: a missing platform_admin_context() meant "not a platform admin", so an
+    // admin without a tenant was told the account belongs to no company.
+    for (const code of ['PGRST202', '42883']) {
+      const { auth, mocks } = setup();
+      mocks.fetchMemberships.mockResolvedValueOnce([]);
+      mocks.fetchPlatformAccess.mockRejectedValueOnce(new PostgrestError({ code, message: 'function not found', details: '', hint: '' }));
+      expect(await failure(auth.signIn({ email: 'admin@megabot.test', password: 'segredo123' }))).toMatchObject({
+        code: 'CONFIG_ERROR',
+        reason: 'PLATFORM_ACCESS_UNAVAILABLE',
+      });
+      expect(mocks.signOutLocally).toHaveBeenCalled();
+    }
   });
 
   it('does not guess on network failures while reading platform access', async () => {
@@ -382,5 +389,97 @@ describe('platform admin access', () => {
     mocks.fetchMemberships.mockResolvedValueOnce([]);
     mocks.fetchPlatformAccess.mockResolvedValueOnce([superAdmin]);
     expect(await auth.restore()).toMatchObject({ kind: 'platform', user: { id: 'admin-1', name: 'Equipa' } });
+  });
+});
+
+/*
+ * Platform vs tenant: who opens what after login (docs/auth/PLATFORM_VS_TENANT_AUTH.md).
+ * Platform access comes ONLY from platform_admin_context() (platform_admins); the
+ * tenant only from tenant_users. Neither implies the other.
+ */
+describe('role matrix (platform vs tenant)', () => {
+  const SUPER_PERMISSIONS = ['tenants.read', 'tenants.suspend', 'audit_logs.read', 'platform_admins.read'];
+  const SUPPORT_PERMISSIONS = ['tenants.read', 'tenants.suspend', 'audit_logs.read'];
+  const admin = (role: 'SUPER_ADMIN' | 'SUPPORT_ADMIN', status: 'ACTIVE' | 'SUSPENDED'): PlatformAccessRecord => ({
+    role,
+    status,
+    permissions: status === 'ACTIVE' ? (role === 'SUPER_ADMIN' ? SUPER_PERMISSIONS : SUPPORT_PERMISSIONS) : [],
+  });
+
+  async function signInAs(platform: PlatformAccessRecord[], memberships: MembershipRecord[]) {
+    const { auth, mocks } = setup();
+    mocks.signIn.mockResolvedValueOnce(gatewaySession('user-x', { name: 'Equipa' }));
+    mocks.fetchPlatformAccess.mockResolvedValueOnce(platform);
+    mocks.fetchMemberships.mockResolvedValueOnce(memberships);
+    return { result: auth.signIn({ email: 'conta@megabot.test', password: 'segredo123' }), mocks };
+  }
+
+  it.each([
+    ['SUPER_ADMIN', SUPER_PERMISSIONS],
+    ['SUPPORT_ADMIN', SUPPORT_PERMISSIONS],
+  ] as const)('%s ACTIVE without any tenant → platform area, no tenant created or required', async (role, permissions) => {
+    const { result, mocks } = await signInAs([admin(role, 'ACTIVE')], []);
+    expect(await result).toEqual({
+      kind: 'platform',
+      user: { id: 'user-x', name: 'Equipa', email: 'ana@megabot.test', phone: '' },
+      tenant: null,
+      platformAdmin: { isPlatformAdmin: true, role, status: 'ACTIVE', permissions },
+      expiresAt: '2026-10-01T12:00:00.000Z',
+    });
+    expect(mocks.signOutLocally).not.toHaveBeenCalled();
+  });
+
+  it.each(['SUPER_ADMIN', 'SUPPORT_ADMIN'] as const)(
+    '%s ACTIVE who is also a tenant owner → platform area only (tenant powers are not carried into it)',
+    async (role) => {
+      const { result } = await signInAs([admin(role, 'ACTIVE')], [membershipRow({}, 'owner')]);
+      const session = await result;
+      expect(session).toMatchObject({ kind: 'platform', tenant: null, platformAdmin: { role } });
+      expect(session).not.toHaveProperty('user.role');
+    }
+  );
+
+  it.each(['SUPER_ADMIN', 'SUPPORT_ADMIN'] as const)('%s SUSPENDED without tenant → denied with the suspension message', async (role) => {
+    const { result, mocks } = await signInAs([admin(role, 'SUSPENDED')], []);
+    expect(await failure(result)).toMatchObject({ code: 'PERMISSION_DENIED', reason: 'PLATFORM_ADMIN_SUSPENDED' });
+    expect(mocks.signOutLocally).toHaveBeenCalled();
+  });
+
+  it('SUPPORT_ADMIN is never upgraded: only the permissions the backend granted', async () => {
+    const { result } = await signInAs([{ role: 'SUPPORT_ADMIN', status: 'ACTIVE', permissions: [...SUPPORT_PERMISSIONS, 'made.up'] }], []);
+    const session = await result;
+    expect(session.kind === 'platform' && session.platformAdmin).toEqual({
+      isPlatformAdmin: true,
+      role: 'SUPPORT_ADMIN',
+      status: 'ACTIVE',
+      permissions: SUPPORT_PERMISSIONS,
+    });
+  });
+
+  it.each(['owner', 'admin', 'operator'] as const)('tenant %s (not a platform admin) → tenant app with that role, never /platform', async (role) => {
+    const { result } = await signInAs([], [membershipRow({}, role)]);
+    expect(await result).toMatchObject({ kind: 'tenant', user: { role }, tenant: { id: 'tenant-a' }, platformAdmin: null });
+  });
+
+  it('a normal user without tenant and without platform access → refused (no bypass)', async () => {
+    const { result, mocks } = await signInAs([], []);
+    expect(await failure(result)).toMatchObject({ code: 'NOT_FOUND', reason: 'TENANT_NOT_FOUND' });
+    expect(mocks.signOutLocally).toHaveBeenCalled();
+  });
+
+  it('platform access is never derived from the email or user_metadata', async () => {
+    const { auth, mocks } = setup();
+    mocks.signIn.mockResolvedValueOnce({
+      user: { id: 'user-y', email: 'admin@megabot.app', phone: null, user_metadata: { role: 'SUPER_ADMIN', platform_admin: true } },
+      expiresAt: '2026-10-01T12:00:00.000Z',
+    });
+    mocks.fetchPlatformAccess.mockResolvedValueOnce([]);
+    mocks.fetchMemberships.mockResolvedValueOnce([]);
+    expect((await failure(auth.signIn({ email: 'admin@megabot.app', password: 'segredo123' }))).reason).toBe('TENANT_NOT_FOUND');
+  });
+
+  it('unknown role or status from the backend → no platform access (fail closed)', async () => {
+    const { result } = await signInAs([{ role: 'ROOT', status: 'ACTIVE', permissions: SUPER_PERMISSIONS }], []);
+    expect((await failure(result)).reason).toBe('TENANT_NOT_FOUND');
   });
 });

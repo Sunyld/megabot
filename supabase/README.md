@@ -79,7 +79,11 @@ Depois do login o app decide a área **antes** de exigir uma empresa:
 | Sem empresa e sem acesso de plataforma | "Esta conta não está associada a nenhuma empresa" |
 
 Nunca é criada uma empresa para o platform admin. O papel `admin` de uma empresa não dá
-acesso à plataforma.
+acesso à plataforma. Se o acesso de plataforma não puder ser lido, o login falha com uma mensagem
+própria (`PLATFORM_ACCESS_UNAVAILABLE`), nunca com "não está associada a nenhuma empresa".
+
+Um admin vê "não está associada a nenhuma empresa"? Corra a consulta de diagnóstico (só leitura) de
+[`docs/auth/PLATFORM_VS_TENANT_AUTH.md`](../docs/auth/PLATFORM_VS_TENANT_AUTH.md#diagnóstico-a-conta-do-admin-não-está-associada-a-nenhuma-empresa).
 
 Cada promoção, mudança de papel/estado ou revogação fica registada em `audit_logs`
 (`platform_admin.granted|role_changed|suspended|reactivated|revoked`; `actor_user_id`

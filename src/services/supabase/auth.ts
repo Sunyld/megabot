@@ -2,7 +2,6 @@ import type { PlatformAdminContext, Session } from '@/types';
 
 import { assertValidNewPassword, assertValidSignUp, isValidEmail } from '../authValidation';
 import { AppError } from '../errors';
-import { noPlatformAccess } from '../platformAdmin';
 import type { AuthEvent, AuthService } from '../types';
 import { logAuthError, toAppError, type AuthErrorContext } from './errors';
 import {
@@ -75,11 +74,23 @@ function accessDeniedError(result: AccessDenied): AppError {
       );
 }
 
-/** RPC not deployed (database without migration 002): nobody is a platform admin. */
+/** The backend answered that platform_admin_context() does not exist (PostgREST / Postgres). */
 function isMissingFunction(error: unknown): boolean {
   const sqlState = toAppError(error).detail?.split(' | ')[0];
   return sqlState === 'PGRST202' || sqlState === '42883';
 }
+
+/**
+ * Platform access could not be read. Never treated as "not a platform admin":
+ * that would send an admin without a tenant to "no company" (TENANT_NOT_FOUND)
+ * and hide the real problem (migration 002 missing or not exposed by the API).
+ */
+const platformAccessUnavailable = (error: unknown) =>
+  new AppError(
+    'CONFIG_ERROR',
+    'Não foi possível verificar o acesso de administração da plataforma. Tente novamente; se persistir, contacte o suporte.',
+    { reason: 'PLATFORM_ACCESS_UNAVAILABLE', detail: toAppError(error).detail }
+  );
 
 /**
  * Supabase Auth + app context.
@@ -98,7 +109,7 @@ export function createSupabaseAuthService(gateway: AuthGateway, options: Supabas
     try {
       return toPlatformAdminContext(await gateway.fetchPlatformAccess());
     } catch (error) {
-      if (isMissingFunction(error)) return noPlatformAccess();
+      if (isMissingFunction(error)) throw platformAccessUnavailable(error);
       throw error;
     }
   }
